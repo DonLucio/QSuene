@@ -59,6 +59,14 @@ function App() {
     notificationTimer.current = window.setTimeout(() => setNotification(null), 6000)
   }, [])
 
+  const revealFocusedField = useCallback((event) => {
+    const field = event.currentTarget.closest('.search-field, .wishlist-request-form label')
+    const reveal = () => field?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    window.requestAnimationFrame(reveal)
+    // En móviles el viewport cambia después de que aparece el teclado.
+    window.setTimeout(reveal, 320)
+  }, [])
+
   const returnToLanding = useCallback((notice = '') => {
     setAccess(null)
     setRoom(null)
@@ -351,7 +359,7 @@ function App() {
         <label className="search-field">
           <span className="sr-only">Buscar canción, artista o álbum</span>
           <b aria-hidden="true">⌕</b>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar canción, artista o álbum…" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} onFocus={revealFocusedField} placeholder="Buscar canción, artista o álbum…" />
         </label>
         <div className="catalog-list">
           {catalog.map(song => {
@@ -386,11 +394,11 @@ function App() {
                 <form className="wishlist-request-form" onSubmit={requestMissingSong}>
                   <label>
                     <span>Nombre de la canción</span>
-                    <input value={wishlistTitle} onChange={(event) => setWishlistTitle(event.target.value)} maxLength="120" required />
+                    <input value={wishlistTitle} onChange={(event) => setWishlistTitle(event.target.value)} onFocus={revealFocusedField} maxLength="120" required />
                   </label>
                   <label>
                     <span>Artista</span>
-                    <input value={wishlistArtist} onChange={(event) => setWishlistArtist(event.target.value)} maxLength="120" required autoFocus />
+                    <input value={wishlistArtist} onChange={(event) => setWishlistArtist(event.target.value)} onFocus={revealFocusedField} maxLength="120" required autoFocus />
                   </label>
                   <div>
                     <button type="button" className="cancel-request" onClick={() => setShowWishlistRequest(false)}>Cancelar</button>

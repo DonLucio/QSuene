@@ -2370,6 +2370,24 @@ body.light-theme {
     overflow-y: auto
 }
 
+.lib-refresh-btn {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  margin-left: 5px;
+  padding: 0;
+  border: 1px solid rgba(249, 115, 22, .2);
+  border-radius: 9px;
+  color: var(--primary-light);
+  background: rgba(249, 115, 22, .08);
+  box-shadow: none;
+}
+.lib-refresh-btn:hover:not(:disabled) { color: #fff; background: rgba(249, 115, 22, .18); }
+.lib-refresh-btn:disabled { cursor: wait; opacity: .65; }
+
 .settings-license-details { width: 100%; margin-top: .65rem; }
 .settings-license-details summary {
     color: var(--text-secondary);

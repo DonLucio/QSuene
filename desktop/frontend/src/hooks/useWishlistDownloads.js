@@ -20,8 +20,8 @@ export default function useWishlistDownloads({ setSongList, showToast, onAutoSta
       })
   ), []);
 
-  const refreshLibrary = useCallback(() => (
-    fetch('/api/songs')
+  const refreshLibrary = useCallback((includeParty = false) => (
+    fetch(`/api/songs${includeParty ? '?include_party=true' : ''}`, { cache: 'no-store' })
       .then(response => response.json())
       .then(data => {
         if (data.songs) setSongList(data.songs);
@@ -87,21 +87,30 @@ export default function useWishlistDownloads({ setSongList, showToast, onAutoSta
     );
     // Reconciliation is no longer on the critical path. Each completed song
     // was already merged from the worker event; this scan only corrects drift.
-    window.setTimeout(() => refreshLibrary().catch(console.error), 1200);
+    window.setTimeout(() => refreshLibrary(destination === 'party').catch(console.error), 1200);
   }, [refreshLibrary, refreshWishlist, showToast]);
 
   useEffect(() => {
     if (!isDownloadActive) return undefined;
+    let cancelled = false;
+    let pollTimer = null;
+    let activeRequest = null;
 
-    const interval = window.setInterval(() => {
-      fetch('/api/wishlist/status')
-        .then(response => response.json())
-        .then(data => {
+    const poll = async () => {
+      activeRequest = new AbortController();
+      const requestTimeout = window.setTimeout(() => activeRequest?.abort(), 5000);
+      try {
+        const response = await fetch(`/api/wishlist/status?_=${Date.now()}`, {
+          cache: 'no-store',
+          signal: activeRequest.signal,
+        });
+        const data = await response.json();
+        if (cancelled) return;
           if (data.wishlist) setWishlist(data.wishlist.filter(item => item.status !== 'completed'));
           if (!data.summary) return;
 
-          const { isActive, needsReindex, completedCount, completedPartyRequests = [], completedSongs = [], currentProgress = 0, destination } = data.summary;
-          if (isActive) setDownloadProgress(currentProgress > 0 ? `${currentProgress}%` : '…');
+          const { isActive, needsReindex, completedCount, completedPartyRequests = [], completedSongs = [], currentProgress = 0, currentStage = '', destination } = data.summary;
+          if (isActive) setDownloadProgress(currentProgress > 0 ? `${currentProgress}%` : (currentStage || '…'));
             if (needsReindex && completedCount > 0) {
               completedThisRunRef.current += completedCount;
               completedPartyRequestsRef.current.push(...completedPartyRequests);
@@ -114,7 +123,6 @@ export default function useWishlistDownloads({ setSongList, showToast, onAutoSta
               );
           }
           if (!isActive) {
-            window.clearInterval(interval);
             downloadActiveRef.current = false;
             setIsDownloadActive(false);
             setDownloadProgress('');
@@ -123,11 +131,23 @@ export default function useWishlistDownloads({ setSongList, showToast, onAutoSta
               completeDownload(completedTotal, destination);
             }
           }
-        })
-        .catch(console.error);
-    }, 750);
+      } catch (error) {
+        if (error.name !== 'AbortError') console.error(error);
+      } finally {
+        window.clearTimeout(requestTimeout);
+        activeRequest = null;
+        if (!cancelled && downloadActiveRef.current) {
+          pollTimer = window.setTimeout(poll, 750);
+        }
+      }
+    };
 
-    return () => window.clearInterval(interval);
+    poll();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(pollTimer);
+      activeRequest?.abort();
+    };
   }, [completeDownload, isDownloadActive, mergeCompletedSongs, onCompleted, refreshWishlist, showToast]);
 
   const addWishlistItem = useCallback(async (item, options = {}) => {

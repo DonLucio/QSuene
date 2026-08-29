@@ -8,8 +8,24 @@ export default function useLibrary() {
   const [searchQuery, setSearchQuery] = useState('');
   const [minRating, setMinRating] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [playlists, setPlaylists] = useState({});
   const [selectedPlaylist, setSelectedPlaylist] = useState(null);
+
+  const refreshLibrary = useCallback(async ({ includeParty = false } = {}) => {
+    setIsRefreshing(true);
+    try {
+      const suffix = includeParty ? '?include_party=true' : '';
+      const response = await fetch(`/api/songs${suffix}`, { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok || data.error) throw new Error(data.error || 'No se pudo recargar la biblioteca');
+      const songs = data.songs || [];
+      setSongList(songs);
+      return songs;
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, []);
 
   useEffect(() => {
     Promise.all([
@@ -35,12 +51,10 @@ export default function useLibrary() {
 
   const changeFolder = useCallback((folder) => {
     setCurrentFolder(folder);
-    fetch('/api/songs').then(response => response.json()).then(data => {
-      if (data.songs) setSongList(data.songs);
-    }).catch(console.error);
-  }, []);
+    refreshLibrary().catch(console.error);
+  }, [refreshLibrary]);
 
   return { songList, setSongList, filteredList, currentFolder, searchQuery, setSearchQuery,
-    minRating, setMinRating, isLoading, playlists, setPlaylists,
+    minRating, setMinRating, isLoading, isRefreshing, refreshLibrary, playlists, setPlaylists,
     selectedPlaylist, setSelectedPlaylist, changeFolder };
 }

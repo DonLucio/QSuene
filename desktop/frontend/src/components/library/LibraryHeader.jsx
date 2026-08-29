@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-function LibraryHeader({ onSearchChange, rating, onRatingChange, onBulkEdit, visibleColumns, setVisibleColumns, filteredCount, totalCount, onClearSearch }) {
+function LibraryHeader({ onSearchChange, rating, onRatingChange, onBulkEdit, onRefresh, isRefreshing, visibleColumns, setVisibleColumns, filteredCount, totalCount, onClearSearch }) {
   const [query, setQuery] = useState('');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [menuOpenUp, setMenuOpenUp] = useState(false);
@@ -66,6 +66,16 @@ function LibraryHeader({ onSearchChange, rating, onRatingChange, onBulkEdit, vis
         <div className="lib-title">
           <i className="fa-solid fa-compact-disc"></i>
           <span>Biblioteca</span>
+          <button
+            type="button"
+            className="lib-refresh-btn"
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            title="Volver a leer los archivos y actualizar el catálogo de invitados"
+            aria-label="Recargar biblioteca"
+          >
+            <i className={`fa-solid fa-rotate-right ${isRefreshing ? 'fa-spin' : ''}`}></i>
+          </button>
         </div>
         {totalCount > 0 && (
           <span className="lib-song-count">

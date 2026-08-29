@@ -43,16 +43,19 @@ export function useCelebration(access) {
 
   useEffect(() => {
     if (!celebration) return undefined
+    const canvas = document.querySelector('.celebration-confetti-canvas')
+    if (!canvas) return undefined
+    const fireConfetti = confetti.create(canvas, { resize: true, useWorker: true })
     const colors = ['#f97316', '#fb923c', '#06b6d4', '#fde047', '#f472b6', '#a7f3d0']
-    confetti({ particleCount: 190, spread: 125, startVelocity: 52, gravity: .9, scalar: 1.05,
-      origin: { x: .5, y: .55 }, colors, zIndex: 101, disableForReducedMotion: true })
+    fireConfetti({ particleCount: 190, spread: 125, startVelocity: 52, gravity: .9, scalar: 1.05,
+      origin: { x: .5, y: .55 }, colors, disableForReducedMotion: true })
     let side = false
     const cannon = window.setInterval(() => {
       side = !side
-      confetti({ particleCount: 42, angle: side ? 60 : 120, spread: 62, startVelocity: 48,
-        origin: { x: side ? 0 : 1, y: .72 }, colors, zIndex: 101, disableForReducedMotion: true })
+      fireConfetti({ particleCount: 42, angle: side ? 60 : 120, spread: 62, startVelocity: 48,
+        origin: { x: side ? .03 : .97, y: .72 }, colors, disableForReducedMotion: true })
     }, 430)
-    return () => { window.clearInterval(cannon); confetti.reset() }
+    return () => { window.clearInterval(cannon); fireConfetti.reset() }
   }, [celebration])
 
   useEffect(() => () => window.clearTimeout(timer.current), [])

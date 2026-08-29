@@ -25,7 +25,7 @@ function App() {
   // Global State
   const library = useLibrary();
   const { songList, setSongList, filteredList, currentFolder, searchQuery,
-    setSearchQuery, minRating, setMinRating, isLoading, playlists,
+    setSearchQuery, minRating, setMinRating, isLoading, isRefreshing, refreshLibrary, playlists,
     setPlaylists, selectedPlaylist, setSelectedPlaylist,
     changeFolder: handleFolderChange } = library;
   const [theme, setTheme] = useState(localStorage.getItem("theme") || "dark");
@@ -114,6 +114,18 @@ function App() {
   useEffect(() => {
     partyAvailableNotifierRef.current = notifyWishlistAvailable;
   }, [notifyWishlistAvailable]);
+
+  const handleLibraryRefresh = async () => {
+    try {
+      const songs = await refreshLibrary({ includeParty: partyModeEnabled });
+      showToast(`Biblioteca recargada: ${songs.length} canciones disponibles`, 'success');
+      // usePartyMode recibe songList como fuente de verdad y publicará este
+      // nuevo catálogo en cuanto React aplique el resultado del escaneo.
+    } catch (error) {
+      console.error(error);
+      showToast(error.message || 'No se pudo recargar la biblioteca', 'error');
+    }
+  };
 
   
   const player = usePlayerController({
@@ -328,6 +340,8 @@ function App() {
               filteredCount={filteredList.length}
               totalCount={selectedPlaylist ? (playlists[selectedPlaylist]?.length || 0) : songList.length}
               onBulkEdit={() => {}}
+              onRefresh={handleLibraryRefresh}
+              isRefreshing={isRefreshing}
               onClearSearch={() => setSearchQuery('')}
             />
             <SongsTable 
