@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 
 from mutagen.mp3 import MP3
 
@@ -65,6 +66,64 @@ def _move_new_files(before_files, destination):
         return final_paths
     except OSError:
         return []
+
+
+def _normalize(value):
+    value = unicodedata.normalize("NFKD", str(value or ""))
+    value = "".join(char for char in value if not unicodedata.combining(char)).lower()
+    return " ".join(re.findall(r"[a-z0-9]+", value))
+
+
+def _matches_requested_song(item, song):
+    """Reject a search-engine substitution before it contaminates the library."""
+    requested_title = _normalize(item.get("title"))
+    requested_artist = _normalize(item.get("artist"))
+    actual_title = _normalize(song.get("title"))
+    actual_artist = _normalize(song.get("artist"))
+    if not requested_title or not actual_title:
+        return False
+    title_tokens = set(requested_title.split())
+    actual_title_tokens = set(actual_title.split())
+    title_overlap = len(title_tokens & actual_title_tokens) / max(1, len(title_tokens))
+    title_matches = (
+        requested_title == actual_title
+        or requested_title in actual_title
+        or actual_title in requested_title
+        or title_overlap >= 0.75
+    )
+    if not title_matches:
+        return False
+    if not requested_artist or not actual_artist:
+        return True
+    artist_tokens = set(requested_artist.split())
+    actual_artist_tokens = set(actual_artist.split())
+    return bool(artist_tokens & actual_artist_tokens)
+
+
+def _select_downloaded_song(before_files, item):
+    changed = {
+        name for name, signature in _audio_snapshot(DOWNLOADS_DIR).items()
+        if before_files.get(name) != signature
+    }
+    for name in sorted(changed):
+        path = os.path.realpath(os.path.join(DOWNLOADS_DIR, name))
+        song = _metadata(path)
+        if _matches_requested_song(item, song):
+            return path, song
+    return None, None
+
+
+def _move_selected_file(source, destination):
+    if os.path.normcase(os.path.realpath(destination)) == os.path.normcase(os.path.realpath(DOWNLOADS_DIR)):
+        return os.path.realpath(source)
+    os.makedirs(destination, exist_ok=True)
+    target = os.path.join(destination, os.path.basename(source))
+    try:
+        os.replace(source, target)
+    except OSError:
+        shutil.copy2(source, target)
+        os.remove(source)
+    return os.path.realpath(target)
 
 
 def run_spotdl_with_progress(command, item_id, timeout=300):
@@ -186,11 +245,18 @@ def run_downloads(items, use_party_directory=False, target_directory=""):
                 _set_status(item_id, "error", (output or "Error desconocido").strip()[-200:])
                 continue
             _set_status(item_id, "moving_to_library", progress=98, stage="Agregando a la biblioteca")
-            paths = _move_new_files(before_files, destination)
-            if not paths:
-                _set_status(item_id, "error", "SpotDL terminó sin producir un archivo de audio nuevo")
+            downloaded_path, downloaded_song = _select_downloaded_song(before_files, item)
+            if not downloaded_path:
+                _set_status(
+                    item_id,
+                    "error",
+                    "La fuente devolvió una canción diferente; no se agregó a la biblioteca",
+                    progress=0,
+                    stage="Coincidencia incorrecta",
+                )
                 continue
-            song = _metadata(paths[0])
+            final_path = _move_selected_file(downloaded_path, destination)
+            song = _metadata(final_path) if final_path != downloaded_path else downloaded_song
             song["librarySource"] = "party" if item_party else "library"
             request = None
             if item.get("source") == "party_guest" and item.get("partyRequestId"):

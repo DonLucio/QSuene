@@ -126,3 +126,40 @@ def test_local_download_moves_file_into_current_library_and_publishes_song(tmp_p
     assert not (downloads / "Artista - Tema local.mp3").exists()
     assert completed_song["path"] == str(library / "Artista - Tema local.mp3")
     assert completed_song["librarySource"] == "library"
+
+
+def test_wrong_spotdl_match_is_not_moved_or_reported_as_completed(tmp_path, monkeypatch):
+    downloads = tmp_path / "descargas"
+    library = tmp_path / "Biblioteca"
+    downloads.mkdir()
+    library.mkdir()
+    import download_jobs
+    monkeypatch.setattr(download_jobs, "DB_PATH", str(tmp_path / "jobs.sqlite3"))
+    monkeypatch.setattr(download_service, "DOWNLOADS_DIR", str(downloads))
+    monkeypatch.setattr(download_service, "SPOTDL_COMMAND", ["spotdl"])
+    monkeypatch.setattr(download_service, "update_item", download_jobs.update_item)
+    monkeypatch.setattr(download_service, "complete_item", download_jobs.complete_item)
+    item = {
+        "id": "wrong-match", "query": "YenJuan - Temblequera", "title": "Temblequera",
+        "artist": "YenJuan", "source": "local", "partyRequestId": "",
+        "status": "pending", "targetDirectory": str(library),
+        "addedAt": "2026-01-01T00:00:00+00:00",
+    }
+
+    def fake_spotdl(command, item_id, timeout):
+        Path(downloads / "DJ Goozo - Rb Sessions 1 - Sabroso.mp3").write_bytes(b"audio")
+        return 0, "Downloading 100%"
+
+    monkeypatch.setattr(download_service, "run_spotdl_with_progress", fake_spotdl)
+    assert download_jobs.add_wishlist_item(item, target_directory=str(library))
+    download_jobs.enqueue([item], "library", False, str(library))
+
+    count, requests = download_service.run_downloads([item], False, str(library))
+    pending = download_jobs.list_wishlist()
+
+    assert count == 0
+    assert requests == []
+    assert pending[0]["status"] == "error"
+    assert "diferente" in pending[0]["errorMsg"]
+    assert not any(library.iterdir())
+    assert (downloads / "DJ Goozo - Rb Sessions 1 - Sabroso.mp3").exists()
