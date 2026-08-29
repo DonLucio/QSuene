@@ -568,10 +568,23 @@ export default function usePartyMode(showToast, songList = [], onWishlistRequest
     });
   }, []);
 
+  const searchMusicDiscovery = useCallback(async (query, limit = 12) => {
+    const access = accessRef.current;
+    const normalizedQuery = String(query || '').trim();
+    if (!enabled || !connected || !access?.room_id || !access?.token) {
+      throw new Error('Activa y conecta el modo fiesta para buscar en Last.fm');
+    }
+    if (normalizedQuery.length < 2) return { results: [], attribution: null };
+    const params = new URLSearchParams({ q: normalizedQuery, limit: String(limit) });
+    return requestJson(`${serverUrl}/api/v1/rooms/${access.room_id}/discovery?${params}`, {
+      headers: { Authorization: `Bearer ${access.token}` },
+    });
+  }, [connected, enabled, serverUrl]);
+
   return {
     enabled, limit, cyclicRequests, isPublic, queue, room, connected, connectionError, serverUrl, busy, catalogSyncing,
     setEnabled, setLimit, setCyclicRequests, setPartyPublic, setServerUrl, enqueue, dequeue, removeQueueItem,
     setParticipantBlocked, reorderQueue, updatePlayback,
-    notifyWishlistAvailable,
+    notifyWishlistAvailable, searchMusicDiscovery,
   };
 }

@@ -8,6 +8,7 @@ import ConsoleCard from './components/player/ConsoleCard';
 import VisualizerCard from './components/player/VisualizerCard';
 import LibraryHeader from './components/library/LibraryHeader';
 import SongsTable from './components/library/SongsTable';
+import DjAssistedSearch from './components/library/DjAssistedSearch';
 import SettingsModal from './components/modals/SettingsModal';
 import DeleteModal from './components/modals/DeleteModal';
 import PlaylistSelectModal from './components/modals/PlaylistSelectModal';
@@ -35,7 +36,7 @@ function App() {
   const partyAvailableNotifierRef = useRef(() => {});
   const {
     wishlist, setWishlist, isDownloadActive, downloadProgress,
-    startDownload,
+    startDownload, addWishlistItem,
   } = useWishlistDownloads({
     setSongList,
     showToast,
@@ -343,6 +344,23 @@ function App() {
               onRefresh={handleLibraryRefresh}
               isRefreshing={isRefreshing}
               onClearSearch={() => setSearchQuery('')}
+            />
+            <DjAssistedSearch
+              key={searchQuery}
+              query={searchQuery}
+              enabled={partyModeEnabled && partyConnected}
+              onSearch={party.searchMusicDiscovery}
+              onSelect={async (song) => {
+                const accepted = await addWishlistItem({
+                  title: song.title,
+                  artist: song.artist,
+                  query: `${song.artist} - ${song.title}`,
+                  source: 'local',
+                  requestedBy: 'DJ',
+                });
+                if (accepted) showToast(`“${song.title}” agregada a deseos`, 'success');
+                return accepted;
+              }}
             />
             <SongsTable 
               songs={filteredList} 
