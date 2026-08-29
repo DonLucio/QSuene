@@ -179,7 +179,7 @@ body.light-theme {
 .brand-bar {
     transform-box: fill-box;
     transform-origin: 50%;
-    transition: stroke .2s, stroke-width .2s, opacity .2s, transform .2s, filter .2s;
+    transition: stroke .12s, stroke-width .12s, opacity .12s, filter .12s;
 }
 
 .brand-bar.orange-bar {
@@ -192,33 +192,27 @@ body.light-theme {
     opacity: 0.90;
 }
 
-/* Sequential 1-at-a-time Chaser Animation (Barrido lineal barra por barra) */
-.brand-logo-svg.is-playing .brand-bar-1,
+/* The loader keeps its decorative chase. The header logo is driven by audio. */
 .logo-loader-svg .logo-bar-1 {
     animation: chaserBar1 2.1s ease-in-out infinite;
 }
 
-.brand-logo-svg.is-playing .brand-bar-2,
 .logo-loader-svg .logo-bar-2 {
     animation: chaserBar2 2.1s ease-in-out infinite;
 }
 
-.brand-logo-svg.is-playing .brand-bar-3,
 .logo-loader-svg .logo-bar-3 {
     animation: chaserBar3 2.1s ease-in-out infinite;
 }
 
-.brand-logo-svg.is-playing .brand-bar-4,
 .logo-loader-svg .logo-bar-4 {
     animation: chaserBar4 2.1s ease-in-out infinite;
 }
 
-.brand-logo-svg.is-playing .brand-bar-5,
 .logo-loader-svg .logo-bar-5 {
     animation: chaserBar5 2.1s ease-in-out infinite;
 }
 
-.brand-logo-svg.is-playing .brand-bar-6,
 .logo-loader-svg .logo-bar-6 {
     animation: chaserBar6 2.1s ease-in-out infinite;
 }

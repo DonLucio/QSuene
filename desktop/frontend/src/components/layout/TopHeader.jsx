@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import WishlistPopover from '../library/WishlistPopover';
+import SpectrumLogo from '../common/SpectrumLogo';
 
 function TopHeader({
   theme,
@@ -37,22 +38,7 @@ function TopHeader({
       {/* Brand identity */}
       <div className="app-brand">
         <div className="brand-title">
-          <svg
-            className={`brand-logo-svg ${isPlaying ? 'is-playing' : ''}`}
-            width="50"
-            height="50"
-            viewBox="0 0 24 24"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            aria-hidden="true"
-          >
-            <path className="brand-bar brand-bar-1" d="M 4.54,10 V 13" stroke="#fafafa" strokeWidth="1.7" strokeLinecap="round" />
-            <path className="brand-bar brand-bar-2 orange-bar" d="M 7.54,7 V 16" stroke="#f06812" strokeWidth="1.7" strokeLinecap="round" />
-            <path className="brand-bar brand-bar-3" d="M 10.54,4 V 19" stroke="#fafafa" strokeWidth="1.7" strokeLinecap="round" />
-            <path className="brand-bar brand-bar-4" d="M 13.54,7 V 16" stroke="#fafafa" strokeWidth="1.7" strokeLinecap="round" />
-            <path className="brand-bar brand-bar-5" d="M 16.54,10 V 13" stroke="#fafafa" strokeWidth="1.7" strokeLinecap="round" />
-            <path className="brand-bar brand-bar-6" d="M 19.54,7 V 16" stroke="#fafafa" strokeWidth="1.7" strokeLinecap="round" />
-          </svg>
+          <SpectrumLogo isPlaying={isPlaying} />
           <span>Q'Suene</span>
         </div>
         <div className="brand-slogan">La música la ponemos todos</div>
