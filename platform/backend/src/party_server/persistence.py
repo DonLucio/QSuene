@@ -76,14 +76,21 @@ class PostgresRoomRepository:
     async def initialize(self):
         self.pool = await asyncpg.create_pool(self.database_url, min_size=1, max_size=10)
         async with self.pool.acquire() as connection:
-            await connection.execute("""
-                CREATE TABLE IF NOT EXISTS party_rooms (
-                    id UUID PRIMARY KEY,
-                    code VARCHAR(6) UNIQUE NOT NULL,
-                    state JSONB NOT NULL,
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                )
-            """)
+            # Varios workers de Uvicorn arrancan en paralelo. PostgreSQL puede
+            # competir al crear los tipos internos de la misma tabla incluso
+            # usando IF NOT EXISTS, por eso serializamos sólo la migración.
+            await connection.execute("SELECT pg_advisory_lock(hashtext('que-suene-schema-init'))")
+            try:
+                await connection.execute("""
+                    CREATE TABLE IF NOT EXISTS party_rooms (
+                        id UUID PRIMARY KEY,
+                        code VARCHAR(6) UNIQUE NOT NULL,
+                        state JSONB NOT NULL,
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )
+                """)
+            finally:
+                await connection.execute("SELECT pg_advisory_unlock(hashtext('que-suene-schema-init'))")
 
     async def close(self):
         if self.pool:
