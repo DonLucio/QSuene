@@ -348,7 +348,7 @@ function App() {
             <DjAssistedSearch
               key={searchQuery}
               query={searchQuery}
-              enabled={partyModeEnabled && partyConnected}
+              enabled={Boolean(party.serverUrl)}
               onSearch={party.searchMusicDiscovery}
               onSelect={async (song) => {
                 const accepted = await addWishlistItem({

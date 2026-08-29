@@ -571,14 +571,15 @@ export default function usePartyMode(showToast, songList = [], onWishlistRequest
   const searchMusicDiscovery = useCallback(async (query, limit = 12) => {
     const access = accessRef.current;
     const normalizedQuery = String(query || '').trim();
-    if (!enabled || !connected || !access?.room_id || !access?.token) {
-      throw new Error('Activa y conecta el modo fiesta para buscar en Last.fm');
-    }
+    if (!serverUrl) throw new Error('Configura el servidor de Q\'Suene para buscar en Last.fm');
     if (normalizedQuery.length < 2) return { results: [], attribution: null };
     const params = new URLSearchParams({ q: normalizedQuery, limit: String(limit) });
-    return requestJson(`${serverUrl}/api/v1/rooms/${access.room_id}/discovery?${params}`, {
-      headers: { Authorization: `Bearer ${access.token}` },
-    });
+    if (enabled && connected && access?.room_id && access?.token) {
+      return requestJson(`${serverUrl}/api/v1/rooms/${access.room_id}/discovery?${params}`, {
+        headers: { Authorization: `Bearer ${access.token}` },
+      });
+    }
+    return requestJson(`${serverUrl}/api/v1/discovery?${params}`);
   }, [connected, enabled, serverUrl]);
 
   return {

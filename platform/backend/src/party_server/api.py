@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+import hashlib
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 
 from .config import Settings, get_settings
 from .event_broker import Priority, PriorityEventBroker
@@ -35,6 +37,29 @@ def create_router(room_service: RoomService, broker: PriorityEventBroker, redis_
     @router.get("/rooms/public")
     async def public_parties() -> list[dict]:
         return await room_service.get_public_rooms()
+
+    @router.get("/discovery")
+    async def discover_music_for_dj(
+        request: Request,
+        q: str = Query(min_length=2, max_length=200),
+        limit: int = Query(default=12, ge=1, le=30),
+    ):
+        """Search for the desktop DJ without requiring an active party room."""
+        if discovery_service is None:
+            raise HTTPException(status_code=503, detail="La búsqueda asistida no está disponible")
+        forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
+        client_host = forwarded or (request.client.host if request.client else "unknown")
+        client_key = hashlib.sha256(f"dj:{client_host}".encode()).hexdigest()[:24]
+        try:
+            results = await discovery_service.search(q, client_key, limit)
+        except DiscoveryUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        return {
+            "query": q,
+            "results": results,
+            "total": len(results),
+            "attribution": {"label": "Información musical de Last.fm", "url": "https://www.last.fm"},
+        }
 
     @router.post("/rooms", response_model=RoomAccessResponse, status_code=status.HTTP_201_CREATED)
     async def create_room(payload: CreateRoomRequest, settings: Settings = Depends(get_settings)):

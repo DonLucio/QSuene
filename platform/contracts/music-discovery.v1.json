@@ -2,6 +2,12 @@
   "version": 1,
   "provider": "backend-managed",
   "endpoints": {
+    "GET /api/v1/discovery": {
+      "audience": "dj",
+      "authentication": "rate_limited_by_client",
+      "query": {"q": "string (2..200)", "limit": "integer (1..30)"},
+      "response": {"results": "music result[]", "attribution": "provider attribution"}
+    },
     "GET /api/v1/rooms/{room_id}/discovery": {
       "auth": "guest bearer token",
       "query": {"q": "string 2..200", "limit": "integer 1..30"},
