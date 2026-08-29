@@ -4,11 +4,13 @@ import '@fortawesome/fontawesome-free/css/all.min.css'
 import LandingPage from './LandingPage'
 import JoinPage from './JoinPage'
 import GuestPartyPage from './GuestPartyPage'
+import AssistedSearch from './AssistedSearch'
 import './styles.css'
 import { versioned } from './socketContract'
 import { useCelebration } from './hooks/useCelebration'
 import { useGuestCatalog } from './hooks/useGuestCatalog'
 import { useGuestSocket } from './hooks/useGuestSocket'
+import { useAssistedSearch } from './hooks/useAssistedSearch'
 import { loadPendingWishlistRequests, persistPendingWishlistRequests } from './wishlistStorage'
 
 
@@ -36,10 +38,6 @@ function App() {
   const [error, setError] = useState('')
   const [closedNotice, setClosedNotice] = useState('')
   const [query, setQuery] = useState('')
-  const [showWishlistRequest, setShowWishlistRequest] = useState(false)
-  const [wishlistTitle, setWishlistTitle] = useState('')
-  const [wishlistArtist, setWishlistArtist] = useState('')
-  const [wishlistSubmitting, setWishlistSubmitting] = useState(false)
   const [catalogRevision, setCatalogRevision] = useState(0)
   const [activeView, setActiveView] = useState('library')
   const [notification, setNotification] = useState(null)
@@ -89,6 +87,30 @@ function App() {
     apiUrl: API_URL, access, query, revision: catalogRevision,
     pendingRequests: pendingWishlistRequests, handledAvailable: handledWishlistAvailable,
     notify, onAvailable: catalogAvailable,
+  })
+
+  const handleAssistedResolution = useCallback((data) => {
+    if (data.state) {
+      roomVersion.current = Math.max(roomVersion.current, Number(data.state.version) || 0)
+      setRoom(data.state)
+    }
+    if (Number.isFinite(Number(data.requests_used))) setAcknowledgedUsage(Number(data.requests_used))
+    if (data.resolution === 'queued') {
+      if (data.result?.song_id) setAcceptedSongIds(current => new Set(current).add(data.result.song_id))
+      notify(`✓ “${data.result?.title || 'La canción'}” fue agregada a la cola.`)
+      return
+    }
+    if (data.resolution === 'wishlist_requested' && data.result?.id) {
+      pendingWishlistRequests.current.set(data.result.id, {
+        title: data.result.title, artist: data.result.artist,
+      })
+      persistPendingWishlistRequests(pendingWishlistRequests.current)
+      notify(`✓ Solicitud enviada al DJ: ${data.result.title} · ${data.result.artist}`)
+    }
+  }, [notify])
+
+  const assistedSearch = useAssistedSearch({
+    apiUrl: API_URL, access, query, onResolved: handleAssistedResolution, notify,
   })
 
   useEffect(() => () => {
@@ -290,33 +312,6 @@ function App() {
     })
   }
 
-  function requestMissingSong(event) {
-    event.preventDefault()
-    if (!socket?.connected || wishlistSubmitting) return
-    setError('')
-    setWishlistSubmitting(true)
-    socket.emit('wishlist.request.add', versioned({
-      title: wishlistTitle.trim(),
-      artist: wishlistArtist.trim(),
-    }), (result) => {
-      setWishlistSubmitting(false)
-      if (!result?.accepted) {
-        notify(result?.error || 'No fue posible enviar la solicitud al DJ', 'error')
-        return
-      }
-      if (result?.request?.id) {
-        pendingWishlistRequests.current.set(result.request.id, {
-          title: wishlistTitle.trim(),
-          artist: wishlistArtist.trim(),
-        })
-        persistPendingWishlistRequests(pendingWishlistRequests.current)
-      }
-      setShowWishlistRequest(false)
-      setWishlistTitle('')
-      setWishlistArtist('')
-    })
-  }
-
   const ownParticipant = room?.participants?.find(participant => participant.id === access?.participant_id)
   const isBlocked = Boolean(ownParticipant?.blocked)
   const ownPendingRequests = room?.queue?.filter(item => item.requested_by === access?.participant_id).length || 0
@@ -411,43 +406,9 @@ function App() {
             )
           })}
           {catalogLoading && <p className="empty">Buscando…</p>}
-          {!catalogLoading && !catalog.length && (
-            <div className="missing-song">
-              <i className="fa-solid fa-music"></i>
-              <strong>No encontramos esa canción</strong>
-              <p>Puedes pedirle al DJ que la agregue a su lista de deseos.</p>
-              {!showWishlistRequest ? (
-                <button
-                  type="button"
-                  className="request-download-button"
-                  onClick={() => {
-                    setWishlistTitle(query.trim())
-                    setShowWishlistRequest(true)
-                  }}
-                >
-                  <i className="fa-solid fa-heart-circle-plus"></i> Solicitar descarga
-                </button>
-              ) : (
-                <form className="wishlist-request-form" onSubmit={requestMissingSong}>
-                  <label>
-                    <span>Nombre de la canción</span>
-                    <input value={wishlistTitle} onChange={(event) => setWishlistTitle(event.target.value)} onFocus={revealFocusedField} maxLength="120" required />
-                  </label>
-                  <label>
-                    <span>Artista</span>
-                    <input value={wishlistArtist} onChange={(event) => setWishlistArtist(event.target.value)} onFocus={revealFocusedField} maxLength="120" required />
-                  </label>
-                  <div>
-                    <button type="button" className="cancel-request" onClick={() => setShowWishlistRequest(false)}>Cancelar</button>
-                    <button type="submit" disabled={!connected || wishlistSubmitting}>
-                      {wishlistSubmitting ? 'Enviando…' : 'Enviar al DJ'}
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
-          )}
+          {!catalogLoading && !catalog.length && query.trim().length >= 2 && <p className="empty local-empty">No está disponible en la biblioteca actual.</p>}
         </div>
+        {!catalogLoading && <AssistedSearch query={query} assisted={assistedSearch} disabled={!connected || isBlocked} />}
         {catalogTotal > catalog.length && <p className="muted result-note">Mostrando las primeras {catalog.length} canciones. Usa la búsqueda para filtrar.</p>}
         {error && <p className="error">{error}</p>}
       </section>}

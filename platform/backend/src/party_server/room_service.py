@@ -4,6 +4,7 @@ import secrets
 import string
 import unicodedata
 import uuid
+import re
 from datetime import datetime, timedelta, timezone
 
 from .models import Participant, QueueItem, QueueSource, Role, Room
@@ -46,6 +47,18 @@ class RoomService:
 
     PUBLIC_GUEST_CAP = 10
     MAX_GUEST_REQUESTS_PER_SONG = 2
+
+    @classmethod
+    def _music_identity(cls, title: str, artist: str) -> tuple[str, str]:
+        def clean(value: str) -> str:
+            normalized = cls._normalize(value)
+            normalized = re.sub(
+                r"\b(remaster(?:ed)?|version|radio edit|official audio|live|\d{4})\b",
+                " ", normalized,
+            )
+            normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+            return re.sub(r"\s+", " ", normalized).strip()
+        return clean(title), clean(artist)
 
     @staticmethod
     def _new_code() -> str:
@@ -234,6 +247,70 @@ class RoomService:
             room.wishlist_requests.append(item)
             room.version += 1
             return room, dict(item)
+
+    async def resolve_music_selection(
+        self, room_id: str, participant_id: str, payload: dict,
+    ) -> tuple[Room, str, dict]:
+        """Atomically turn an identified external track into queue or wishlist."""
+        async with self._guard():
+            room = self._require_participant(room_id, participant_id)
+            participant = room.participants[participant_id]
+            if participant.role is not Role.GUEST:
+                raise RoomPermissionError("Sólo los invitados pueden usar la búsqueda asistida")
+            if participant.blocked:
+                raise RoomPermissionError("El DJ bloqueó nuevas solicitudes para este usuario")
+
+            title = str(payload.get("title", "")).strip()[:200]
+            artist = str(payload.get("artist", "")).strip()[:200]
+            if not title or not artist:
+                raise RoomConflictError("No fue posible identificar canción y artista")
+            identity = self._music_identity(title, artist)
+            local_song = next(
+                (song for song in room.catalog.values()
+                 if self._music_identity(song.get("title", ""), song.get("artist", "")) == identity),
+                None,
+            )
+            if local_song:
+                song_id = local_song["song_id"]
+                if any(item.song_id == song_id for item in room.queue):
+                    raise RoomConflictError("La canción ya está programada en la cola")
+                if int(room.guest_song_request_counts.get(song_id, 0)) >= self.MAX_GUEST_REQUESTS_PER_SONG:
+                    raise RoomConflictError("Esta canción ya alcanzó el máximo de 2 solicitudes en la fiesta")
+                pending = sum(1 for item in room.queue if item.requested_by == participant_id)
+                used = pending if room.cyclic_requests else participant.requests_made
+                if used >= room.limit_per_guest:
+                    raise RoomConflictError(f"Límite de {room.limit_per_guest} solicitudes alcanzado")
+                item = QueueItem(
+                    id=str(uuid.uuid4()), song_id=song_id, title=local_song["title"],
+                    artist=local_song.get("artist", ""), source=QueueSource.GUEST,
+                    requested_by=participant.id, requested_by_name=participant.name,
+                )
+                room.queue.append(item)
+                participant.requests_made += 1
+                room.guest_song_request_counts[song_id] = int(room.guest_song_request_counts.get(song_id, 0)) + 1
+                room.queue = self._interleave_guest_requests(room.queue)
+                self._refresh_up_next_marker(room)
+                room.version += 1
+                return room, "queued", item.public_dict()
+
+            request_key = self._normalize(f"{artist}|{title}")
+            existing = next(
+                (item for item in room.wishlist_requests if item.get("request_key") == request_key),
+                None,
+            )
+            if existing:
+                raise RoomConflictError("Esta canción ya fue solicitada al DJ")
+            request = {
+                "id": str(uuid.uuid4()), "title": title, "artist": artist,
+                "request_key": request_key, "requested_by": participant.id,
+                "requested_by_name": participant.name,
+                "provider": str(payload.get("provider", "lastfm"))[:40],
+                "provider_url": str(payload.get("provider_url", ""))[:500],
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            room.wishlist_requests.append(request)
+            room.version += 1
+            return room, "wishlist_requested", dict(request)
 
     async def mark_wishlist_available(
         self,

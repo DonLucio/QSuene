@@ -12,6 +12,7 @@ from .event_broker import Priority, PriorityEventBroker
 from .realtime import register_socket_handlers
 from .room_service import RoomService
 from .persistence import PostgresRoomRepository
+from .music_discovery import LastFmDiscoveryProvider, MusicDiscoveryService
 
 settings = get_settings()
 room_repository = PostgresRoomRepository(settings.database_url) if settings.database_url else None
@@ -29,6 +30,12 @@ sio = socketio.AsyncServer(
     client_manager=client_manager,
 )
 broker = PriorityEventBroker(sio)
+discovery_service = MusicDiscoveryService(
+    LastFmDiscoveryProvider(settings.lastfm_api_key, settings.lastfm_timeout_seconds),
+    redis_client,
+    settings.discovery_cache_seconds,
+    settings.discovery_requests_per_minute,
+)
 
 
 @asynccontextmanager
@@ -75,7 +82,7 @@ api.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
-api.include_router(create_router(room_service, broker, redis_client))
+api.include_router(create_router(room_service, broker, redis_client, discovery_service))
 register_socket_handlers(sio, room_service, broker, settings)
 
 application = socketio.ASGIApp(sio, other_asgi_app=api, socketio_path="socket.io")

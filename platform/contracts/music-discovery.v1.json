@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "provider": "backend-managed",
+  "endpoints": {
+    "GET /api/v1/rooms/{room_id}/discovery": {
+      "auth": "guest bearer token",
+      "query": {"q": "string 2..200", "limit": "integer 1..30"},
+      "response": {
+        "query": "string",
+        "results": [{"title": "string", "artist": "string", "provider": "string", "provider_url": "string", "listeners": "integer", "score": "integer"}],
+        "total": "integer",
+        "local_result_count": "integer",
+        "attribution": {"label": "string", "url": "string"}
+      }
+    },
+    "POST /api/v1/rooms/{room_id}/discovery/resolve": {
+      "auth": "guest bearer token",
+      "request": {"query": "string", "title": "string", "artist": "string", "provider": "string", "provider_url": "string"},
+      "response": {"accepted": true, "resolution": "queued | wishlist_requested", "result": "queue item | wishlist request", "state": "room.state", "requests_used": "integer", "requests_remaining": "integer"}
+    }
+  }
+}

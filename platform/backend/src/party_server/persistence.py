@@ -94,6 +94,21 @@ class PostgresRoomRepository:
                         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     )
                 """)
+                await connection.execute("""
+                    CREATE TABLE IF NOT EXISTS unresolved_music_searches (
+                        id BIGSERIAL PRIMARY KEY,
+                        room_id UUID NOT NULL,
+                        participant_id UUID NOT NULL,
+                        query VARCHAR(200) NOT NULL,
+                        local_result_count INTEGER NOT NULL DEFAULT 0,
+                        external_result_count INTEGER NOT NULL DEFAULT 0,
+                        selected_title VARCHAR(200) NOT NULL DEFAULT '',
+                        selected_artist VARCHAR(200) NOT NULL DEFAULT '',
+                        provider VARCHAR(40) NOT NULL DEFAULT '',
+                        resolution VARCHAR(40) NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )
+                """)
             finally:
                 await connection.execute("SELECT pg_advisory_unlock(hashtext('que-suene-schema-init'))")
 
@@ -126,3 +141,21 @@ class PostgresRoomRepository:
             return False
         async with self.pool.acquire() as connection:
             return await connection.fetchval("SELECT TRUE")
+
+    async def record_music_search(
+        self, room_id: str, participant_id: str, query: str,
+        local_count: int, external_count: int, resolution: str,
+        title: str = "", artist: str = "", provider: str = "",
+    ) -> None:
+        if not self.pool:
+            return
+        async with self.pool.acquire() as connection:
+            await connection.execute(
+                """INSERT INTO unresolved_music_searches(
+                    room_id,participant_id,query,local_result_count,external_result_count,
+                    selected_title,selected_artist,provider,resolution
+                ) VALUES($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8,$9)""",
+                room_id, participant_id, query[:200], max(0, local_count),
+                max(0, external_count), title[:200], artist[:200],
+                provider[:40], resolution[:40],
+            )

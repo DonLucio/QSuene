@@ -77,6 +77,44 @@ async def test_guest_can_request_a_missing_song_only_once():
 
 
 @pytest.mark.asyncio
+async def test_external_selection_is_revalidated_and_queued_when_local_equivalent_exists():
+    service = RoomService()
+    room, dj = await service.create_room("Sala", "DJ", 3)
+    room, guest = await service.join_room(room.code, "Invitado")
+    await service.replace_catalog(room.id, dj.id, [{
+        "song_id": "local-1", "title": "Te Amo (Remastered 2020)",
+        "artist": "Artista C", "album": "", "duration": 0,
+    }])
+
+    room, resolution, item = await service.resolve_music_selection(room.id, guest.id, {
+        "query": "te amo", "title": "Te Amo", "artist": "Artista C",
+        "provider": "lastfm", "provider_url": "https://www.last.fm/track",
+    })
+
+    assert resolution == "queued"
+    assert item["song_id"] == "local-1"
+    assert room.participants[guest.id].requests_made == 1
+    assert room.wishlist_requests == []
+
+
+@pytest.mark.asyncio
+async def test_external_selection_creates_complete_wishlist_request_when_not_local():
+    service = RoomService()
+    room, _dj = await service.create_room("Sala", "DJ", 3)
+    room, guest = await service.join_room(room.code, "Invitado")
+
+    room, resolution, request = await service.resolve_music_selection(room.id, guest.id, {
+        "query": "te amo", "title": "Te Amo", "artist": "Artista C",
+        "provider": "lastfm", "provider_url": "https://www.last.fm/track",
+    })
+
+    assert resolution == "wishlist_requested"
+    assert request["title"] == "Te Amo" and request["artist"] == "Artista C"
+    assert request["provider"] == "lastfm"
+    assert room.queue == []
+
+
+@pytest.mark.asyncio
 async def test_dj_can_block_and_unblock_guest_requests():
     service = RoomService()
     room, dj = await service.create_room("Sala", "DJ", 3)

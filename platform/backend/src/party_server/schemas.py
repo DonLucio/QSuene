@@ -15,6 +15,14 @@ class UpdateRoomSettingsRequest(BaseModel):
     cyclic_requests: bool | None = None
 
 
+class ResolveMusicSelectionRequest(BaseModel):
+    query: str = Field(min_length=2, max_length=200)
+    title: str = Field(min_length=1, max_length=200)
+    artist: str = Field(min_length=1, max_length=200)
+    provider: str = Field(default="lastfm", max_length=40)
+    provider_url: str = Field(default="", max_length=500)
+
+
 
 class JoinRoomRequest(BaseModel):
     guest_name: str = Field(min_length=1, max_length=40)

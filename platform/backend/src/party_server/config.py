@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     room_idle_minutes: int = 120
     disconnected_guest_minutes: int = 30
     dj_absence_seconds: int = Field(default=60, ge=30, le=600)
+    lastfm_api_key: str = ""
+    lastfm_timeout_seconds: float = Field(default=4.0, ge=1.0, le=10.0)
+    discovery_cache_seconds: int = Field(default=1800, ge=60, le=86400)
+    discovery_requests_per_minute: int = Field(default=12, ge=1, le=120)
 
     @model_validator(mode="after")
     def validate_production(self):
