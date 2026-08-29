@@ -138,6 +138,23 @@ function App() {
     setCurrentTime, duration, volume, setVolume, playSongDirectly,
     advancePartyQueue, playNext, playPrev, togglePlay,
   } = player;
+
+  useEffect(() => {
+    const handleGlobalSpace = (event) => {
+      if (event.code !== 'Space' || event.repeat || event.ctrlKey || event.altKey || event.metaKey) return;
+      const target = event.target;
+      const isTextEntry = target instanceof HTMLInputElement
+        || target instanceof HTMLTextAreaElement
+        || target?.isContentEditable;
+      // Keep normal spacing while typing, but prevent page scrolling and a
+      // focused button from firing in addition to the player shortcut.
+      if (!isTextEntry) event.preventDefault();
+      togglePlay();
+    };
+    window.addEventListener('keydown', handleGlobalSpace, true);
+    return () => window.removeEventListener('keydown', handleGlobalSpace, true);
+  }, [togglePlay]);
+
   usePartyPlaybackSync({
     enabled: partyModeEnabled, currentSong, currentTime, duration,
     isPlaying, updatePlayback,
