@@ -10,10 +10,6 @@ const BARS = [
   { x: 19.54, length: 9, orange: false },
 ];
 const BAND_RANGES = [[0, 4], [3, 8], [7, 14], [13, 24], [23, 42], [41, 70]];
-// Calibrated against Bacalao Men - Cometas. Each frequency band has a
-// different natural energy, so a shared threshold would keep lows saturated.
-const BAND_FLOORS = [0.76, 0.60, 0.51, 0.41, 0.27, 0.14];
-const BAND_CEILINGS = [0.93, 0.85, 0.75, 0.64, 0.55, 0.47];
 const CENTER_Y = 11.5;
 
 function mixColor(from, to, amount) {
@@ -35,6 +31,7 @@ function energyColor(energy) {
 export default function SpectrumLogo({ isPlaying, size = 50 }) {
   const pathsRef = useRef([]);
   const smoothedRef = useRef(BARS.map(() => 0));
+  const rangesRef = useRef(BARS.map(() => null));
 
   useEffect(() => {
     let frame = 0;
@@ -43,6 +40,7 @@ export default function SpectrumLogo({ isPlaying, size = 50 }) {
 
     const restore = () => {
       smoothedRef.current.fill(0);
+      rangesRef.current.fill(null);
       paths.forEach((path, index) => {
         if (!path) return;
         const bar = BARS[index];
@@ -75,9 +73,19 @@ export default function SpectrumLogo({ isPlaying, size = 50 }) {
         let total = 0;
         for (let bin = start; bin < end; bin += 1) total += frequencyData[bin];
         const level = end > start ? (total / (end - start)) / 255 : 0;
-        const raw = Math.max(0, Math.min(1,
-          (level - BAND_FLOORS[index]) / (BAND_CEILINGS[index] - BAND_FLOORS[index]),
-        ));
+        let range = rangesRef.current[index];
+        if (!range) {
+          range = { floor: Math.max(0, level - 0.09), peak: Math.min(1, level + 0.09) };
+          rangesRef.current[index] = range;
+        }
+        // Fast adaptation when a genuine new low/high appears; very slow drift
+        // otherwise. This preserves contrast across differently mastered songs.
+        range.floor += (level - range.floor) * (level < range.floor ? 0.12 : 0.0015);
+        const minimumPeak = Math.min(1, range.floor + 0.14);
+        const peakTarget = Math.max(level, minimumPeak);
+        range.peak += (peakTarget - range.peak) * (level > range.peak ? 0.18 : 0.003);
+        const dynamicRange = Math.max(0.12, range.peak - range.floor);
+        const raw = Math.max(0, Math.min(1, (level - range.floor) / dynamicRange));
         const previous = smoothedRef.current[index];
         const energy = previous + (raw - previous) * (raw > previous ? 0.38 : 0.22);
         smoothedRef.current[index] = energy;
