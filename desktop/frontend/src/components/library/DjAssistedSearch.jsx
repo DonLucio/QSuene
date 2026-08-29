@@ -57,7 +57,6 @@ export default function DjAssistedSearch({ query, enabled, onSearch, onSelect })
                   {song.provider_url && <a href={song.provider_url} target="_blank" rel="noreferrer" title="Ver en Last.fm"><i className="fa-solid fa-arrow-up-right-from-square"></i></a>}
                   <button type="button" disabled={Boolean(selectedKey)} onClick={() => select(song)} title="Agregar a deseos">
                     <i className={`fa-solid ${selectedKey === key ? 'fa-circle-notch fa-spin' : 'fa-plus'}`}></i>
-                    <span>Deseos</span>
                   </button>
                 </article>
               );

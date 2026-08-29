@@ -198,15 +198,18 @@ h2 { margin-bottom: 8px; letter-spacing: -.025em; }
 .assisted-results-title span { margin-bottom: 3px; color: var(--primary-light); font-size: .58rem; font-weight: 900; letter-spacing: .12em; }
 .assisted-results-title strong { font-size: .9rem; }
 .assisted-results-title b { color: var(--secondary); font-size: .76rem; }
-.assisted-results { display: grid; gap: 7px; }
-.assisted-results article { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 10px 10px 10px 13px; border: 1px solid rgba(255,255,255,.065); border-radius: 13px; background: rgba(255,255,255,.025); }
+.assisted-results { display: grid; gap: 6px; max-height: min(42vh,360px); overflow-y: auto; padding-right: 3px; scrollbar-width: thin; scrollbar-color: rgba(249,115,22,.24) transparent; }
+.assisted-results::-webkit-scrollbar { width: 4px; }
+.assisted-results::-webkit-scrollbar-track { background: transparent; }
+.assisted-results::-webkit-scrollbar-thumb { background: rgba(249,115,22,.24); border-radius: 999px; }
+.assisted-results article { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 8px 8px 8px 11px; border: 1px solid rgba(255,255,255,.065); border-radius: 11px; background: rgba(255,255,255,.025); }
 .assisted-results article > div { min-width: 0; flex: 1; }
 .assisted-results article strong,.assisted-results article span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .assisted-results article strong { color: var(--text-main); font-size: .79rem; }
 .assisted-results article span { margin-top: 3px; color: var(--text-secondary); font-size: .68rem; }
 .assisted-results article a { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; color: var(--text-muted); font-size: .57rem; text-decoration: none; }
 .assisted-results article a:hover { color: var(--primary-light); }
-.assisted-results article button { display: grid; place-items: center; flex: 0 0 38px; width: 38px; height: 38px; padding: 0; border-radius: 11px; }
+.assisted-results article button { display: grid; place-items: center; flex: 0 0 32px; width: 32px; min-height: 32px; height: 32px; padding: 0; border-radius: 9px; font-size: .7rem; }
 .lastfm-attribution { justify-self: end; color: var(--text-muted); font-size: .61rem; text-decoration: none; }
 .lastfm-attribution:hover { color: var(--primary-light); }
 .add-song:disabled { background: rgba(16,185,129,.12); color: #63e3a5; box-shadow: none; }

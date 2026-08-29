@@ -121,9 +121,18 @@ export default function useWishlistDownloads({ setSongList, showToast, onAutoSta
               freshEvents.forEach(event => handledCompletionIdsRef.current.add(event.item_id));
               const completedSongs = freshEvents.map(event => event.song).filter(song => song?.path);
               const partyEvents = freshEvents.filter(event => event.request?.partyRequestId);
+              const localEvents = freshEvents.filter(event => event.song?.librarySource !== 'party');
               completedThisRunRef.current += freshEvents.length;
               completedPartyRequestsRef.current.push(...partyEvents.map(event => event.request));
               mergeCompletedSongs(completedSongs);
+              // The durable event gives immediate feedback, while this scan is
+              // the authoritative reconciliation with the library directory.
+              // Run it before acknowledging the event so a delayed render can
+              // never leave a successfully downloaded local song invisible.
+              if (localEvents.length) refreshLibrary(false).catch(error => {
+                console.error(error);
+                showToast('La canción se descargó, pero no se pudo releer la biblioteca', 'error');
+              });
               refreshWishlist().catch(console.error);
               if (partyEvents.length) onCompleted?.(partyEvents);
               showToast(
@@ -168,7 +177,7 @@ export default function useWishlistDownloads({ setSongList, showToast, onAutoSta
       window.clearTimeout(pollTimer);
       activeRequest?.abort();
     };
-  }, [completeDownload, mergeCompletedSongs, onCompleted, refreshWishlist, showToast]);
+  }, [completeDownload, mergeCompletedSongs, onCompleted, refreshLibrary, refreshWishlist, showToast]);
 
   const addWishlistItem = useCallback(async (item, options = {}) => {
     try {
