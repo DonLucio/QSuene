@@ -8,6 +8,9 @@
 - [ ] Configurar DNS, Apache y HTTPS.
 - [ ] Probar WebSocket desde datos móviles.
 - [ ] Construir y probar el MSI en Windows 10 y 11 (el EXE ya fue validado manualmente).
+- [ ] Publicar el MSI con el nombre estable `QSuene-Setup-x64.msi`; la versión
+      permanece en el tag, los metadatos y el manifiesto. La landing utiliza la
+      URL de GitHub Releases `releases/latest/download/QSuene-Setup-x64.msi`.
 - [ ] Firmar ejecutables e instalador.
 - [ ] Crear tag `v1.0.0` y GitHub Release.
 - [ ] Añadir en las interfaces el enlace público al código fuente exigido por AGPL.

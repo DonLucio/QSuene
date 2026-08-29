@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import headerImage from '../../../desktop/frontend/src/assets/header-party-dj-v5.png';
 
+const LATEST_RELEASE_API = 'https://api.github.com/repos/DonLucio/QSuene/releases/latest';
+
 export default function LandingPage({ onJoinRoom, apiUrl, notice = '' }) {
   const [publicParties, setPublicParties] = useState([]);
   const [loadingParties, setLoadingParties] = useState(true);
@@ -8,6 +10,7 @@ export default function LandingPage({ onJoinRoom, apiUrl, notice = '' }) {
   const [showPinModal, setShowPinModal] = useState(false);
   const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [showLicenseModal, setShowLicenseModal] = useState(false);
+  const [windowsRelease, setWindowsRelease] = useState({ status: 'idle', url: '', version: '' });
   const [partiesError, setPartiesError] = useState('');
   const pinDialogRef = useRef(null);
   const downloadDialogRef = useRef(null);
@@ -37,6 +40,35 @@ export default function LandingPage({ onJoinRoom, apiUrl, notice = '' }) {
       clearInterval(interval);
     };
   }, [apiUrl]);
+
+  useEffect(() => {
+    if (!showDownloadModal || windowsRelease.status === 'ready') return undefined;
+    const controller = new AbortController();
+    setWindowsRelease({ status: 'loading', url: '', version: '' });
+    fetch(LATEST_RELEASE_API, {
+      headers: { Accept: 'application/vnd.github+json' },
+      signal: controller.signal,
+    })
+      .then(response => {
+        if (!response.ok) throw new Error(`Release no disponible (${response.status})`);
+        return response.json();
+      })
+      .then(release => {
+        const assets = Array.isArray(release.assets) ? release.assets : [];
+        const installer = assets.find(asset => asset.name?.toLowerCase().endsWith('.msi'))
+          || assets.find(asset => asset.name?.toLowerCase().endsWith('.exe'));
+        if (!installer?.browser_download_url) throw new Error('El release no contiene instalador para Windows');
+        setWindowsRelease({
+          status: 'ready',
+          url: installer.browser_download_url,
+          version: release.tag_name || release.name || 'estable',
+        });
+      })
+      .catch(error => {
+        if (error.name !== 'AbortError') setWindowsRelease({ status: 'unavailable', url: '', version: '' });
+      });
+    return () => controller.abort();
+  }, [showDownloadModal]);
 
   useEffect(() => {
     if (!showPinModal && !showDownloadModal && !showLicenseModal) return undefined;
@@ -383,14 +415,22 @@ export default function LandingPage({ onJoinRoom, apiUrl, notice = '' }) {
               <button 
                 type="button" 
                 className="btn-primary btn-block"
+                disabled={windowsRelease.status !== 'ready'}
                 onClick={() => {
-                  alert("¡La versión oficial para Windows estará disponible muy pronto para descarga directa!");
+                  window.location.assign(windowsRelease.url);
                   setShowDownloadModal(false);
                 }}
               >
-                <i className="fa-solid fa-download"></i> Descargar Instalador (.exe)
+                <i className={`fa-solid ${windowsRelease.status === 'loading' ? 'fa-circle-notch fa-spin' : 'fa-download'}`}></i>{' '}
+                {windowsRelease.status === 'loading' && 'Buscando última versión...'}
+                {windowsRelease.status === 'ready' && `Descargar ${windowsRelease.version}`}
+                {windowsRelease.status === 'unavailable' && 'Primera versión en preparación'}
               </button>
-              <span className="dl-subtext">Compatible con Windows 10 y Windows 11</span>
+              <span className="dl-subtext">
+                {windowsRelease.status === 'unavailable'
+                  ? 'El instalador aparecerá aquí al publicar la primera versión estable.'
+                  : 'Selecciona automáticamente el MSI estable más reciente · Windows 10 y 11'}
+              </span>
             </div>
           </div>
         </div>
