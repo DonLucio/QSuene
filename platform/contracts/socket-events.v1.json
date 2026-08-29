@@ -2,6 +2,7 @@
   "version": 1,
   "events": {
     "room.snapshot.request": {"sender":"any","recipient":"sender","priority":"normal","ack":true,"required":[]},
+    "dj.heartbeat": {"sender":"dj","recipient":"server","priority":"low","ack":false,"required":[]},
     "queue.request.add": {"sender":"dj|guest","recipient":"room","priority":"high","ack":true,"required":["song_id"]},
     "queue.item.consume": {"sender":"dj","recipient":"room","priority":"high","ack":true,"required":[]},
     "queue.item.remove": {"sender":"dj","recipient":"room","priority":"high","ack":true,"required":["item_id"]},
@@ -20,6 +21,7 @@
     "room.settings.updated": {"sender":"server","recipient":"room","priority":"high","ack":false,"required":["changed","room_version"]},
     "participant.block.updated": {"sender":"server","recipient":"room","priority":"critical","ack":false,"required":["participant_id","blocked"]},
     "playback.status": {"sender":"server","recipient":"room","priority":"critical","ack":false,"required":["playing","title","position_ms","duration_ms"]},
-    "queue.up_next": {"sender":"server","recipient":"room","priority":"critical","ack":false,"required":["item_id","title","requested_by","seconds_remaining"]}
+    "queue.up_next": {"sender":"server","recipient":"room","priority":"critical","ack":false,"required":["item_id","title","requested_by","seconds_remaining"]},
+    "room.closed": {"sender":"server","recipient":"room","priority":"critical","ack":false,"required":["reason"]}
   }
 }
