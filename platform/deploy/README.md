@@ -2,6 +2,8 @@
 
 1. Instalar Docker, Docker Compose, Apache y Certbot.
 2. Copiar `.env.example` a `.env` y cambiar la clave secreta, dominio y claves.
+   Conserve `http://127.0.0.1:5001` en `PARTY_ALLOWED_ORIGINS`: es el origen
+   utilizado por la interfaz WebView de la aplicación DJ instalada en Windows.
 3. Ejecutar `docker compose up -d --build`.
 4. Publicar los contenedores solo en `127.0.0.1` antes de producción.
 5. Habilitar módulos de Apache:
