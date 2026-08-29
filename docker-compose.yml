@@ -14,7 +14,8 @@ services:
 
   guest-web:
     build:
-      context: ./platform/guest-web
+      context: .
+      dockerfile: platform/guest-web/Dockerfile
       args:
         VITE_API_URL: ""
     restart: unless-stopped

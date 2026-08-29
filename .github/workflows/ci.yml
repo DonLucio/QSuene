@@ -126,6 +126,8 @@ jobs:
         run: |
           cp .env.example .env
           docker compose --env-file .env.example config --quiet
+      - name: Build production images
+        run: docker compose --env-file .env.example build backend guest-web
 
   ci-success:
     name: CI success
