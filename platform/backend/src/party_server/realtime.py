@@ -92,10 +92,16 @@ def register_socket_handlers(
             room=room.id,
             priority=Priority.HIGH,
         )
+        participant = room.participants.get(claims["sub"])
+        own_pending = sum(1 for item in room.queue if item.requested_by == claims["sub"])
+        requests_used = own_pending if room.cyclic_requests else int(participant.requests_made if participant else 0)
         return {
             "accepted": True,
             "room_version": room.version,
             "state": room.snapshot(),
+            "participant": participant.public_dict() if participant else None,
+            "requests_used": requests_used,
+            "requests_remaining": max(0, room.limit_per_guest - requests_used),
         }
 
     @sio.on("wishlist.available")

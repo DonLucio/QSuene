@@ -29,9 +29,6 @@ export default function PartyPanel({ enabled, onEnabledChange, limit, onLimitCha
 
       {room?.join_url && <div className="party-access-actions">
         <button type="button" className="btn" onClick={() => setShowQr(true)}><i className="fa-solid fa-qrcode"></i> Mostrar QR</button>
-        <button type="button" className="btn btn-secondary" onClick={() => navigator.clipboard?.writeText(room.join_url)} title={room.join_url}>
-          <i className="fa-solid fa-link"></i> Copiar URL de acceso
-        </button>
       </div>}
 
       <div className="party-limit-row">
@@ -44,9 +41,9 @@ export default function PartyPanel({ enabled, onEnabledChange, limit, onLimitCha
         </div>
       </div>
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.15rem 0' }}>
-        <span style={{ fontSize: '0.74rem', color: isPublic ? 'var(--primary)' : 'var(--text-secondary)', display: 'flex', gap: '0.35rem', fontWeight: 600 }} title="Visible en la página pública, con máximo de 10 invitados"><i className="fa-solid fa-globe"></i> Fiesta Pública</span>
-        <label className="switch" style={{ width: '38px', height: '20px', minWidth: '38px' }}>
+      <div className="party-public-row">
+        <span className={isPublic ? 'active' : ''} title="Visible en la página pública, con máximo de 10 invitados"><i className="fa-solid fa-globe"></i> Fiesta pública</span>
+        <label className="switch party-public-switch">
           <input type="checkbox" checked={isPublic} disabled={!connected} onChange={(event) => onPublicChange(event.target.checked)} />
           <span className="slider round"></span>
         </label>

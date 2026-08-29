@@ -45,6 +45,8 @@ function App() {
   const [notification, setNotification] = useState(null)
   const [upNextNotice, setUpNextNotice] = useState(null)
   const [countdownNow, setCountdownNow] = useState(Date.now())
+  const [acceptedSongIds, setAcceptedSongIds] = useState(() => new Set())
+  const [acknowledgedUsage, setAcknowledgedUsage] = useState(null)
   const notificationTimer = useRef(null)
   const playbackSyncAt = useRef(Date.now())
   const playbackSignature = useRef('')
@@ -93,6 +95,12 @@ function App() {
     window.clearTimeout(notificationTimer.current)
   }, [])
 
+  useEffect(() => {
+    setAcceptedSongIds(new Set())
+    setAcknowledgedUsage(null)
+    roomVersion.current = 0
+  }, [access?.room_id, access?.participant_id])
+
   // El evento de reproducción puede llegar primero como "cargando/pausado" y
   // enseguida como "reproduciendo". La sala es la fuente de verdad: al ver por
   // primera vez una solicitud propia en reproducción, celebramos una sola vez.
@@ -123,6 +131,14 @@ function App() {
         playbackSyncAt.current = Date.now()
       }
       setRoom(incoming)
+      const participant = incoming.participants?.find(item => item.id === access?.participant_id)
+      const pending = incoming.queue?.filter(item => item.requested_by === access?.participant_id).length || 0
+      setAcknowledgedUsage(incoming.cyclic_requests ? pending : Number(participant?.requests_made || 0))
+      setAcceptedSongIds(current => {
+        if (!current.size) return current
+        const queuedIds = new Set(incoming.queue?.map(item => item.song_id) || [])
+        return new Set([...current].filter(songId => !queuedIds.has(songId)))
+      })
       celebrateOwnSong(incoming.playback)
       ;(incoming.wishlist_available || []).forEach(notice => handleWishlistAvailable(notice, activeSocket))
     },
@@ -253,6 +269,18 @@ function App() {
         notify(result?.error || 'No fue posible agregar la canción', 'error')
         return
       }
+      setAcceptedSongIds(current => new Set(current).add(song.song_id))
+      window.setTimeout(() => {
+        setAcceptedSongIds(current => {
+          if (!current.has(song.song_id)) return current
+          const next = new Set(current)
+          next.delete(song.song_id)
+          return next
+        })
+      }, 5000)
+      if (Number.isFinite(Number(result.requests_used))) {
+        setAcknowledgedUsage(Number(result.requests_used))
+      }
       // Apply the authoritative quota and queue in the ACK itself. The regular
       // room.state broadcast remains a second delivery path for every client.
       if (result?.state && Number(result.state.version) >= roomVersion.current) {
@@ -292,7 +320,8 @@ function App() {
   const ownParticipant = room?.participants?.find(participant => participant.id === access?.participant_id)
   const isBlocked = Boolean(ownParticipant?.blocked)
   const ownPendingRequests = room?.queue?.filter(item => item.requested_by === access?.participant_id).length || 0
-  const requestsUsed = room?.cyclic_requests ? ownPendingRequests : Number(ownParticipant?.requests_made || 0)
+  const roomRequestsUsed = room?.cyclic_requests ? ownPendingRequests : Number(ownParticipant?.requests_made || 0)
+  const requestsUsed = acknowledgedUsage == null ? roomRequestsUsed : Math.max(roomRequestsUsed, acknowledgedUsage)
   const requestLimit = Number(room?.limit_per_guest || 0)
   const quotaReached = Boolean(room && requestLimit > 0 && requestsUsed >= requestLimit)
 
@@ -363,7 +392,7 @@ function App() {
         </label>
         <div className="catalog-list">
           {catalog.map(song => {
-            const alreadyQueued = room?.queue?.some(item => item.song_id === song.song_id)
+            const alreadyQueued = acceptedSongIds.has(song.song_id) || room?.queue?.some(item => item.song_id === song.song_id)
             const guestRequestCount = Number(room?.guest_song_request_counts?.[song.song_id] ?? song.guest_request_count ?? 0)
             const guestRequestLimit = Number(song.guest_request_limit || 2)
             const requestLimitReached = guestRequestCount >= guestRequestLimit
@@ -374,7 +403,9 @@ function App() {
               <article className={`catalog-item ${requestLimitReached ? 'is-request-limited' : ''}`} key={song.song_id}>
                 <div><strong>{song.title}</strong><p>{song.artist || 'Artista desconocido'}{song.album ? ` · ${song.album}` : ''}</p>{requestLimitReached && <small className="song-request-limit">Máximo alcanzado · {guestRequestLimit} solicitudes</small>}</div>
                 <button className="add-song" aria-label={(alreadyQueued || requestLimitReached) ? unavailableLabel : `Agregar ${song.title}`} disabled={!connected || alreadyQueued || requestLimitReached} onClick={() => requestSong(song)}>
-                  {requestLimitReached ? <i className="fa-solid fa-ban" aria-hidden="true"></i> : (alreadyQueued ? '✓' : '+')}
+                  {requestLimitReached
+                    ? <i className="fa-solid fa-ban" aria-hidden="true"></i>
+                    : <i className={`fa-solid ${alreadyQueued ? 'fa-check' : 'fa-plus'}`} aria-hidden="true"></i>}
                 </button>
               </article>
             )

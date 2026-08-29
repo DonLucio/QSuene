@@ -1521,7 +1521,8 @@ body.light-theme {
     border-radius: 6px;
     align-items: center;
     gap: .35rem;
-    min-width: 248px;
+    min-width: 0;
+    width: 100%;
     padding: .38rem .4rem;
     transition: opacity .15s, background .15s, transform .15s;
     display: flex
@@ -1570,7 +1571,9 @@ body.light-theme {
 .party-queue-actions {
     flex: none;
     gap: 2px;
-    display: flex
+    display: flex;
+    position: relative;
+    z-index: 1
 }
 
 .party-queue-actions button {
@@ -1831,6 +1834,34 @@ body.light-theme {
     padding: .35rem .5rem;
     font-size: .7rem
 }
+
+.party-public-row {
+    min-height: 28px;
+    padding: 2px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .65rem
+}
+
+.party-public-row > span {
+    min-width: 0;
+    color: var(--text-secondary);
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    font-size: .72rem;
+    font-weight: 650;
+    line-height: 1
+}
+
+.party-public-row > span.active { color: var(--primary) }
+.party-public-row > span i { width: 14px; text-align: center; font-size: .72rem }
+.party-public-switch.switch { flex: 0 0 38px; width: 38px; min-width: 38px; height: 20px; margin: 0 }
+
+.party-queue-actions button i { font-size: .68rem; line-height: 1 }
+.party-queue-actions .party-play-now,
+.party-queue-actions .party-cancel-item { box-shadow: 0 2px 8px #00000040 }
 
 .party-qr-modal {
     text-align: center;
@@ -2363,7 +2394,7 @@ body.light-theme {
     flex-direction: column;
     flex-shrink: 0;
     gap: .85rem;
-    width: 250px;
+    width: 282px;
     padding: 1.1rem;
     transition: width .35s cubic-bezier(.4, 0, .2, 1), padding .35s cubic-bezier(.4, 0, .2, 1), opacity .25s, border-width .35s;
     display: flex;
