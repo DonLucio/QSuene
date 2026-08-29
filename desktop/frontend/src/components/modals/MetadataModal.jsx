@@ -1,0 +1,1 @@
+export default function MetadataModal() { return <div>MetadataModal</div>; }

@@ -1,0 +1,60 @@
+# Audio and user libraries
+*.mp3
+*.m4a
+*.flac
+*.wav
+*.ogg
+*.opus
+*.aac
+*.aiff
+*.alac
+descargas/
+ModoFiesta/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.p12
+desktop/app/settings.json
+desktop/app/wishlist.json
+desktop/app/playlists.json
+
+# Runtime data
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+*.db
+*.log
+redis-data/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+
+# Node and build artifacts
+node_modules/
+dist/
+build/
+coverage/
+
+# Packaging
+desktop/packaging/bin/
+desktop/packaging/obj/
+installer/bin/
+installer/obj/
+
+# Editors and local work
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.backup_checkpoints/
+.codex-trash/
