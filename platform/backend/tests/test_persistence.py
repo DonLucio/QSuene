@@ -17,6 +17,7 @@ def test_room_aggregate_round_trip_preserves_operational_state():
         source=QueueSource.GUEST, requested_by=guest.id, requested_by_name=guest.name,
     ))
     room.wishlist_available.append({"request_id": "wish-1", "requested_by": guest.id})
+    room.guest_song_request_counts["song-1"] = 2
 
     restored = room_from_state(room_to_state(room))
 
@@ -25,3 +26,4 @@ def test_room_aggregate_round_trip_preserves_operational_state():
     assert restored.queue[0].id == "queue-1"
     assert restored.participants[guest.id].disconnected_at is not None
     assert restored.wishlist_available == room.wishlist_available
+    assert restored.guest_song_request_counts == {"song-1": 2}

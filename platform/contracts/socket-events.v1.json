@@ -15,7 +15,7 @@
     "room.cyclic.update": {"sender":"dj","recipient":"room","priority":"high","ack":true,"required":["cyclic_requests"]},
     "participant.block.update": {"sender":"dj","recipient":"room","priority":"critical","ack":true,"required":["participant_id","blocked"]},
     "settings.update": {"sender":"dj","recipient":"room","priority":"high","ack":true,"required":[]},
-    "room.state": {"sender":"server","recipient":"room","priority":"low|normal|high|critical","ack":false,"required":["id","version","queue","playback"]},
+    "room.state": {"sender":"server","recipient":"room","priority":"low|normal|high|critical","ack":false,"required":["id","version","queue","playback","guest_song_request_counts"]},
     "wishlist.requested": {"sender":"server","recipient":"dj","priority":"high","ack":false,"required":["id","title","artist","requested_by"]},
     "catalog.updated": {"sender":"server","recipient":"room","priority":"normal","ack":false,"required":[]},
     "room.settings.updated": {"sender":"server","recipient":"room","priority":"high","ack":false,"required":["changed","room_version"]},

@@ -75,6 +75,7 @@ export default function usePartyMode(showToast, songList = [], onWishlistRequest
   const onWishlistRequestRef = useRef(onWishlistRequest);
   const processedWishlistRequestsRef = useRef(new Set());
   const pendingWishlistAvailableRef = useRef(new Map());
+  const wishlistAvailableRetryRef = useRef(null);
   const lastProgressSentAt = useRef(0);
   const latestPlaybackRef = useRef(null);
   const virtualLibraryRef = useRef([]);
@@ -146,6 +147,8 @@ export default function usePartyMode(showToast, songList = [], onWishlistRequest
 
 
   const disconnect = useCallback(() => {
+    window.clearTimeout(wishlistAvailableRetryRef.current);
+    wishlistAvailableRetryRef.current = null;
     const socket = socketRef.current;
     socketRef.current = null;
     if (socket) {
@@ -175,16 +178,41 @@ export default function usePartyMode(showToast, songList = [], onWishlistRequest
     }
   }, [showToast]);
 
-  const flushWishlistAvailable = useCallback((socket = socketRef.current) => {
+  const flushWishlistAvailable = useCallback(function flushPendingWishlist(socket = socketRef.current) {
     if (!socket?.connected) return;
     pendingWishlistAvailableRef.current.forEach((payload, requestId) => {
-      socket.timeout(6000).emit('wishlist.available', partyPayload(payload), (timeoutError, response) => {
+      const { download_item_id: downloadItemId, ...notice } = payload;
+      socket.timeout(6000).emit('wishlist.available', partyPayload(notice), (timeoutError, response) => {
         if (!timeoutError && response?.accepted) {
-          pendingWishlistAvailableRef.current.delete(requestId);
+          if (downloadItemId) {
+            fetch('/api/wishlist/events/ack', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ itemIds: [downloadItemId] }),
+            }).then(localResponse => {
+              if (!localResponse.ok) throw new Error('No se confirmó localmente la notificación');
+              pendingWishlistAvailableRef.current.delete(requestId);
+            }).catch(() => {
+              // The backend operation is idempotent; retry both acknowledgments
+              // until the durable desktop event can be cleared safely.
+              window.clearTimeout(wishlistAvailableRetryRef.current);
+              wishlistAvailableRetryRef.current = window.setTimeout(
+                () => flushPendingWishlist(socketRef.current),
+                3000,
+              );
+            });
+          } else {
+            pendingWishlistAvailableRef.current.delete(requestId);
+          }
           return;
         }
         // Keep it pending. A reconnect or a later completed download retries it.
         setConnectionError(response?.error || 'No se confirmó la canción descargada');
+        window.clearTimeout(wishlistAvailableRetryRef.current);
+        wishlistAvailableRetryRef.current = window.setTimeout(
+          () => flushPendingWishlist(socketRef.current),
+          3000,
+        );
       });
     });
   }, []);
@@ -527,13 +555,15 @@ export default function usePartyMode(showToast, songList = [], onWishlistRequest
     });
   }, [enabled]);
 
-  const notifyWishlistAvailable = useCallback((requests = []) => {
-    requests.forEach(request => {
+  const notifyWishlistAvailable = useCallback((events = []) => {
+    events.forEach(event => {
+      const request = event?.request || event;
       if (!request?.partyRequestId) return;
       pendingWishlistAvailableRef.current.set(request.partyRequestId, {
         request_id: request.partyRequestId,
         title: request.title || 'La canción solicitada',
         artist: request.artist || '',
+        download_item_id: event?.item_id || '',
       });
     });
   }, []);

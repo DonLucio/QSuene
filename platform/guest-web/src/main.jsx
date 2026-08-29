@@ -364,11 +364,17 @@ function App() {
         <div className="catalog-list">
           {catalog.map(song => {
             const alreadyQueued = room?.queue?.some(item => item.song_id === song.song_id)
+            const guestRequestCount = Number(room?.guest_song_request_counts?.[song.song_id] ?? song.guest_request_count ?? 0)
+            const guestRequestLimit = Number(song.guest_request_limit || 2)
+            const requestLimitReached = guestRequestCount >= guestRequestLimit
+            const unavailableLabel = requestLimitReached
+              ? `${song.title} ya alcanzó el máximo de ${guestRequestLimit} solicitudes`
+              : `${song.title} ya está programada`
             return (
-              <article className="catalog-item" key={song.song_id}>
-                <div><strong>{song.title}</strong><p>{song.artist || 'Artista desconocido'}{song.album ? ` · ${song.album}` : ''}</p></div>
-                <button className="add-song" aria-label={alreadyQueued ? `${song.title} ya está programada` : `Agregar ${song.title}`} disabled={!connected || alreadyQueued} onClick={() => requestSong(song)}>
-                  {alreadyQueued ? '✓' : '+'}
+              <article className={`catalog-item ${requestLimitReached ? 'is-request-limited' : ''}`} key={song.song_id}>
+                <div><strong>{song.title}</strong><p>{song.artist || 'Artista desconocido'}{song.album ? ` · ${song.album}` : ''}</p>{requestLimitReached && <small className="song-request-limit">Máximo alcanzado · {guestRequestLimit} solicitudes</small>}</div>
+                <button className="add-song" aria-label={(alreadyQueued || requestLimitReached) ? unavailableLabel : `Agregar ${song.title}`} disabled={!connected || alreadyQueued || requestLimitReached} onClick={() => requestSong(song)}>
+                  {requestLimitReached ? <i className="fa-solid fa-ban" aria-hidden="true"></i> : (alreadyQueued ? '✓' : '+')}
                 </button>
               </article>
             )

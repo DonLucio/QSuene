@@ -8,7 +8,18 @@ import unicodedata
 import json
 import queue
 import time
-from download_jobs import complete_item as complete_download_item, enqueue as enqueue_download_batch, snapshot as download_snapshot, update_item as update_download_item
+from download_jobs import (
+    acknowledge_completion_events,
+    add_wishlist_item as persist_wishlist_item,
+    clear_pending_wishlist,
+    complete_item as complete_download_item,
+    enqueue as enqueue_download_batch,
+    list_wishlist as durable_wishlist,
+    migrate_legacy_wishlist,
+    remove_wishlist_item as delete_wishlist_item,
+    snapshot as download_snapshot,
+    update_item as update_download_item,
+)
 from urllib.parse import urlparse
 from flask import Flask, jsonify, request, send_file, send_from_directory, render_template
 from mutagen.mp3 import MP3
@@ -55,9 +66,6 @@ DOWNLOADS_DIR = os.path.join(BASE_DIR, "descargas")
 PARTY_DOWNLOADS_DIR = os.path.join(BASE_DIR, "ModoFiesta")
 
 # In-memory download state { item_id: { status, errorMsg } }
-_download_state = {}
-_download_lock = threading.Lock()
-_download_batch_active = False
 
 def load_settings():
     global selected_dir, party_server_url
@@ -665,7 +673,7 @@ def remove_from_playlist():
 #  WISHLIST  —  helpers
 # ─────────────────────────────────────────────
 
-def load_wishlist():
+def _read_legacy_wishlist():
     if os.path.exists(WISHLIST_FILE):
         try:
             with open(WISHLIST_FILE, "r", encoding="utf-8") as f:
@@ -674,215 +682,31 @@ def load_wishlist():
             pass
     return []
 
-def save_wishlist(items):
-    try:
-        with open(WISHLIST_FILE, "w", encoding="utf-8") as f:
-            json.dump(items, f, indent=4, ensure_ascii=False)
-    except Exception:
-        pass
-
-def _merge_download_state(items):
-    """Merge in-memory download status into persisted items list."""
-    with _download_lock:
-        for item in items:
-            state = _download_state.get(item.get("id"))
-            if state:
-                item["status"] = state["status"]
-                item["errorMsg"] = state.get("errorMsg", "")
-                item["progress"] = state.get("progress", item.get("progress", 0))
-                item["stage"] = state.get("stage", item.get("stage", ""))
-    return items
-
-def _set_item_status(item_id, status, error_msg="", progress=None, stage=None):
-    """Helper: update in-memory state and persist to disk atomically."""
-    with _download_lock:
-        previous = _download_state.get(item_id, {})
-        _download_state[item_id] = {
-            "status": status,
-            "errorMsg": error_msg,
-            "progress": previous.get("progress", 0) if progress is None else progress,
-            "stage": previous.get("stage", "") if stage is None else stage,
-        }
-    all_items = load_wishlist()
-    for w in all_items:
-        if w.get("id") == item_id:
-            w["status"] = status
-            w["errorMsg"] = error_msg
-            if progress is not None:
-                w["progress"] = progress
-            if stage is not None:
-                w["stage"] = stage
-    save_wishlist(all_items)
-    update_download_item(item_id, status, error_msg, progress, stage)
+migrate_legacy_wishlist(_read_legacy_wishlist())
 
 
-def _set_item_progress(item_id, progress, stage="Descargando"):
-    """Update live progress without rewriting the wishlist JSON on every tick."""
-    normalized = max(0, min(99, int(progress)))
-    with _download_lock:
-        state = _download_state.setdefault(item_id, {"status": "downloading", "errorMsg": ""})
-        state.update({"status": "downloading", "progress": normalized, "stage": stage})
-    update_download_item(item_id, "downloading", "", normalized, stage)
+def load_wishlist():
+    """Compatibility helper backed exclusively by the transactional store."""
+    return durable_wishlist()
 
-
-def _audio_file_snapshot(directory):
-    """Return exact file signatures so an old download is never moved by mistake."""
-    try:
-        return {
-            name: (os.stat(os.path.join(directory, name)).st_mtime_ns, os.path.getsize(os.path.join(directory, name)))
-            for name in os.listdir(directory)
-            if os.path.isfile(os.path.join(directory, name))
-            and name.lower().endswith(('.mp3', '.m4a', '.flac', '.ogg'))
-        }
-    except OSError:
-        return {}
-
-
-def _move_new_files(before_files, dest_dir):
-    """
-    Compare DOWNLOADS_DIR contents before/after spotdl run.
-    Move any new or modified audio files to dest_dir. Returns final file paths.
-    """
-    if not dest_dir or not os.path.exists(dest_dir):
-        return []
-    norm_dest = os.path.normpath(dest_dir).lower()
-    norm_dl = os.path.normpath(DOWNLOADS_DIR).lower()
-    try:
-        after_files = _audio_file_snapshot(DOWNLOADS_DIR)
-        target_files = {
-            name for name, signature in after_files.items()
-            if before_files.get(name) != signature
-        }
-
-        if norm_dest == norm_dl:
-            return [os.path.realpath(os.path.join(DOWNLOADS_DIR, name)) for name in target_files]
-
-        os.makedirs(dest_dir, exist_ok=True)
-        import shutil
-        final_paths = []
-        for fname in target_files:
-            src = os.path.join(DOWNLOADS_DIR, fname)
-            dst = os.path.join(dest_dir, fname)
-            try:
-                if os.path.exists(dst):
-                    try:
-                        os.remove(dst)
-                    except Exception:
-                        pass
-                shutil.move(src, dst)
-                final_paths.append(os.path.realpath(dst))
-            except Exception:
-                try:
-                    shutil.copy2(src, dst)
-                    os.remove(src)
-                    final_paths.append(os.path.realpath(dst))
-                except Exception:
-                    pass
-        return final_paths
-    except Exception:
-        return []
-
-
-def _run_spotdl_with_progress(cmd, item_id, timeout=300):
-    """Run SpotDL while consuming Rich progress output instead of buffering it."""
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        bufsize=0,
-        cwd=BASE_DIR,
-    )
-    chunks = queue.Queue()
-
-    def read_output():
-        while True:
-            raw_chunk = os.read(process.stdout.fileno(), 256)
-            if not raw_chunk:
-                break
-            chunks.put(raw_chunk.decode("utf-8", errors="replace"))
-        chunks.put(None)
-
-    threading.Thread(target=read_output, daemon=True).start()
-    deadline = time.monotonic() + timeout
-    output_tail = ""
-    last_progress = 0
-    reader_done = False
-    phase_markers = (
-        ("searching", 18, "Buscando fuente"),
-        ("downloading", 40, "Descargando audio"),
-        ("converting", 72, "Procesando audio"),
-        ("embedding", 90, "Guardando metadatos"),
-        ("saving", 94, "Finalizando archivo"),
-    )
-    while process.poll() is None:
-        if time.monotonic() >= deadline and process.poll() is None:
-            process.kill()
-            raise subprocess.TimeoutExpired(cmd, timeout)
-        try:
-            chunk = chunks.get(timeout=.2)
-        except queue.Empty:
-            continue
-        if chunk is None:
-            reader_done = True
-            continue
-        output_tail = (output_tail + chunk)[-4000:]
-        percentages = re.findall(r"(?<!\d)(\d{1,3}(?:\.\d+)?)\s*%", output_tail)
-        if percentages:
-            progress = min(99, int(float(percentages[-1])))
-            if progress >= last_progress + 2:
-                last_progress = progress
-                stage = "Finalizando" if progress >= 90 else ("Procesando audio" if progress >= 70 else "Descargando")
-                _set_item_progress(item_id, progress, stage)
-        # En una tubería sin TTY SpotDL no siempre imprime porcentajes, pero sí
-        # sus fases. Ofrecemos un avance conservador y real, nunca un porcentaje
-        # sintético basado únicamente en tiempo transcurrido.
-        lowered_output = output_tail.lower()
-        for marker, phase_progress, phase_stage in phase_markers:
-            if marker in lowered_output and phase_progress > last_progress:
-                last_progress = phase_progress
-                _set_item_progress(item_id, phase_progress, phase_stage)
-
-    # SpotDL ya terminó: no debemos mantener bloqueado el ciclo esperando a
-    # que un descendiente que heredó stdout cierre también la tubería. Drenamos
-    # únicamente lo que ya esté disponible y continuamos con el movimiento del
-    # archivo, la reindexación y las notificaciones.
-    drain_deadline = time.monotonic() + 1.0
-    while not reader_done and time.monotonic() < drain_deadline:
-        try:
-            chunk = chunks.get(timeout=.05)
-        except queue.Empty:
-            continue
-        if chunk is None:
-            reader_done = True
-        else:
-            output_tail = (output_tail + chunk)[-4000:]
-    return process.returncode, output_tail
-
-
-
-def _run_spotdl_downloads(pending_items, use_party_directory=False):
-    """
-    Background thread: runs spotdl sequentially per item.
-    State machine: pending → searching → downloading → moving_to_library → completed | error
-    Publishes a library reindex signal after each completed item, then removes
-    completed entries from the wishlist when the batch finishes.
-    """
-    global selected_dir
-    os.makedirs(DOWNLOADS_DIR, exist_ok=True)
-    batch_destination = PARTY_DOWNLOADS_DIR if use_party_directory else selected_dir
-    if not batch_destination or (not use_party_directory and not os.path.exists(batch_destination)):
-        batch_destination = DOWNLOADS_DIR
-    os.makedirs(batch_destination, exist_ok=True)
-
-    # Output template: {artists} - {title}.{output-ext}
-    OUTPUT_TEMPLATE = os.path.join(DOWNLOADS_DIR, "{artists} - {title}.{output-ext}")
-
-    completed_ids = []
-    completed_party_requests_result = []
+def _run_spotdl_downloads(pending_items, use_party_directory=False, target_directory=""):
+    # Compatibility shim for older callers. The implementation lives in the
+    # isolated worker service and no longer shares the Flask/player process.
+    from download_service import run_downloads
+    return run_downloads(pending_items, use_party_directory, target_directory)
 
     for item in pending_items:
         item_id = item["id"]
         query = item.get("query", "").strip()
+        item_uses_party_directory = bool(item.get("preferredParty", use_party_directory))
+        batch_destination = (
+            item.get("targetDirectory")
+            or target_directory
+            or (PARTY_DOWNLOADS_DIR if item_uses_party_directory else selected_dir)
+        )
+        if not batch_destination or (not item_uses_party_directory and not os.path.exists(batch_destination)):
+            batch_destination = DOWNLOADS_DIR
+        os.makedirs(batch_destination, exist_ok=True)
         if not query:
             _set_item_status(item_id, "error", "Sin consulta de búsqueda")
             continue
@@ -927,27 +751,18 @@ def _run_spotdl_downloads(pending_items, use_party_directory=False):
                 completed_song = None
                 if final_paths:
                     completed_song = get_mp3_metadata(final_paths[0])
-                    completed_song["librarySource"] = "party" if use_party_directory else "library"
+                    completed_song["librarySource"] = "party" if item_uses_party_directory else "library"
                 _set_item_status(item_id, "completed", progress=100, stage="Disponible")
                 completed_ids.append(item_id)
 
-                # Notify the frontend after every individual library change,
-                # instead of waiting for the complete download batch.
-                with _download_lock:
-                    _download_state["__needsReindex__"] = True
-                    _download_state["__completedCount__"] = (
-                        int(_download_state.get("__completedCount__", 0)) + 1
-                    )
-                    completed_party_requests = _download_state.setdefault("__completedPartyRequests__", [])
-                    completed_request = None
-                    if item.get("source") == "party_guest" and item.get("partyRequestId"):
-                        completed_request = {
-                            "partyRequestId": item["partyRequestId"],
-                            "title": item.get("title") or item.get("query", "Canción solicitada"),
-                            "artist": item.get("artist", ""),
-                        }
-                        completed_party_requests.append(completed_request)
-                        completed_party_requests_result.append(completed_request)
+                completed_request = None
+                if item.get("source") == "party_guest" and item.get("partyRequestId"):
+                    completed_request = {
+                        "partyRequestId": item["partyRequestId"],
+                        "title": item.get("title") or item.get("query", "Canción solicitada"),
+                        "artist": item.get("artist", ""),
+                    }
+                    completed_party_requests_result.append(completed_request)
                 # Durable one-song event: the Flask process sees it on its next
                 # poll even though downloads run in a separate worker process.
                 complete_download_item(item_id, completed_request, completed_song)
@@ -961,37 +776,7 @@ def _run_spotdl_downloads(pending_items, use_party_directory=False):
         except Exception as e:
             _set_item_status(item_id, "error", str(e)[:200])
 
-    # ── POST-BATCH: remove completed items from the wishlist ─────────
-    if completed_ids:
-        all_items = load_wishlist()
-        # Keep only items that are NOT completed
-        remaining = [w for w in all_items if w.get("id") not in completed_ids]
-        save_wishlist(remaining)
-
-        # Clean up in-memory state for completed ids
-        for cid in completed_ids:
-            with _download_lock:
-                _download_state.pop(cid, None)
     return len(completed_ids), completed_party_requests_result
-
-
-def _run_spotdl_downloads_guarded(pending_items, use_party_directory=False):
-    """Run one batch and always release the server-side batch lock."""
-    global _download_batch_active
-    try:
-        current_batch = pending_items
-        while current_batch:
-            _run_spotdl_downloads(current_batch, use_party_directory)
-            # Requests may arrive while a batch is running. Preserve the
-            # five-song automatic policy without retrying failed items forever.
-            newly_pending = [
-                item for item in load_wishlist()
-                if item.get("status") == "pending"
-            ]
-            current_batch = newly_pending if len(newly_pending) >= 5 else []
-    finally:
-        with _download_lock:
-            _download_batch_active = False
 
 
 # ─────────────────────────────────────────────
@@ -1000,11 +785,7 @@ def _run_spotdl_downloads_guarded(pending_items, use_party_directory=False):
 
 @app.route('/api/wishlist', methods=['GET'])
 def get_wishlist():
-    items = load_wishlist()
-    items = _merge_download_state(items)
-    # Sort descending by addedAt (most recent first)
-    items.sort(key=lambda x: x.get("addedAt", ""), reverse=True)
-    return jsonify({"wishlist": items})
+    return jsonify({"wishlist": durable_wishlist()})
 
 
 @app.route('/api/wishlist/add', methods=['POST'])
@@ -1023,13 +804,6 @@ def add_to_wishlist():
     if not query:
         query = f"{artist} - {title}" if artist else title
 
-    items = load_wishlist()
-
-    # Avoid exact duplicates by query
-    existing_queries = [w.get("query", "").lower() for w in items]
-    if query.lower() in existing_queries:
-        return jsonify({"error": "La canción ya está en la lista de deseos", "wishlist": items}), 409
-
     from datetime import datetime, timezone
     new_item = {
         "id": str(uuid.uuid4()),
@@ -1043,10 +817,14 @@ def add_to_wishlist():
         "requestedBy": requested_by,
         "partyRequestId": party_request_id,
     }
-    items.append(new_item)
-    save_wishlist(items)
-    items.sort(key=lambda x: x.get("addedAt", ""), reverse=True)
-    return jsonify({"success": True, "wishlist": items})
+    target_directory = PARTY_DOWNLOADS_DIR if party_mode_active else selected_dir
+    if not persist_wishlist_item(
+        new_item,
+        preferred_party=bool(party_mode_active),
+        target_directory=target_directory,
+    ):
+        return jsonify({"error": "La canción ya está en la lista de deseos", "wishlist": durable_wishlist()}), 409
+    return jsonify({"success": True, "wishlist": durable_wishlist()})
 
 
 @app.route('/api/wishlist/remove', methods=['POST'])
@@ -1056,21 +834,15 @@ def remove_from_wishlist():
     if not item_id:
         return jsonify({"error": "ID no especificado"}), 400
 
-    items = load_wishlist()
-    items = [w for w in items if w.get("id") != item_id]
-    save_wishlist(items)
-    with _download_lock:
-        _download_state.pop(item_id, None)
-    items.sort(key=lambda x: x.get("addedAt", ""), reverse=True)
-    return jsonify({"success": True, "wishlist": items})
+    if not delete_wishlist_item(item_id):
+        return jsonify({"error": "Solo se pueden retirar deseos pendientes"}), 409
+    return jsonify({"success": True, "wishlist": durable_wishlist()})
 
 
 @app.route('/api/wishlist/clear', methods=['POST'])
 def clear_wishlist():
-    save_wishlist([])
-    with _download_lock:
-        _download_state.clear()
-    return jsonify({"success": True, "wishlist": []})
+    clear_pending_wishlist()
+    return jsonify({"success": True, "wishlist": durable_wishlist()})
 
 
 @app.route('/api/wishlist/download', methods=['POST'])
@@ -1079,7 +851,7 @@ def download_wishlist():
     if not getattr(sys, "frozen", False) and not os.path.exists(SPOTDL_EXE):
         return jsonify({"error": f"SpotDL no encontrado en: {SPOTDL_EXE}"}), 500
 
-    items = load_wishlist()
+    items = durable_wishlist()
     pending = [w for w in items if w.get("status") in ("pending", "error")]
 
     if not pending:
@@ -1089,7 +861,10 @@ def download_wishlist():
     # leak into the library that happens to be open in the DJ application.
     use_party_directory = bool(party_mode_active)
     destination = "party" if use_party_directory else "library"
-    batch_id, created = enqueue_download_batch(pending, destination, use_party_directory)
+    target_directory = PARTY_DOWNLOADS_DIR if use_party_directory else selected_dir
+    batch_id, created = enqueue_download_batch(
+        pending, destination, use_party_directory, target_directory,
+    )
     return jsonify({
         "success": True,
         "queued": len(pending) if created else 0,
@@ -1101,13 +876,11 @@ def download_wishlist():
 @app.route('/api/wishlist/status', methods=['GET'])
 def wishlist_status():
     """Polling endpoint — returns current status of all wishlist items."""
-    items = load_wishlist()
-    items = _merge_download_state(items)
-    items.sort(key=lambda x: x.get("addedAt", ""), reverse=True)
+    items = durable_wishlist()
 
     active_statuses = ("searching", "downloading", "moving_to_library")
 
-    worker_batch, worker_items = download_snapshot(consume_events=True)
+    worker_batch, worker_items = download_snapshot()
     for item in items:
         worker_state = worker_items.get(item.get("id"))
         if worker_state:
@@ -1124,23 +897,6 @@ def wishlist_status():
     batch_active = bool(worker_batch and worker_batch["status"] in ("queued", "running"))
     is_active = batch_active or any(w.get("status") in active_statuses for w in items)
 
-    # One-shot reindex flag: read and clear atomically
-    needs_reindex = False
-    completed_count = 0
-    completed_party_requests = []
-    completed_songs = []
-    with _download_lock:
-        if _download_state.get("__needsReindex__"):
-            needs_reindex = True
-            completed_count = _download_state.pop("__completedCount__", 0)
-            completed_party_requests = _download_state.pop("__completedPartyRequests__", [])
-            _download_state.pop("__needsReindex__", None)
-    if worker_batch and worker_batch.get("needs_reindex"):
-        needs_reindex = True
-        completed_count += int(worker_batch.get("completed_count", 0))
-        completed_party_requests.extend(worker_batch.get("completed_requests", []))
-        completed_songs.extend(worker_batch.get("completed_songs", []))
-
     active_items = [item for item in items if item.get("status") in active_statuses]
     current_item = active_items[0] if active_items else None
 
@@ -1154,16 +910,23 @@ def wishlist_status():
             "moving": moving,
             "error": error,
             "isActive": is_active,
-            "needsReindex": needs_reindex,
-            "completedCount": completed_count,
-            "completedPartyRequests": completed_party_requests,
-            "completedSongs": completed_songs,
+            "completedEvents": worker_batch.get("completion_events", []) if worker_batch else [],
             "currentProgress": int((current_item or {}).get("progress", 0) or 0),
             "currentStage": (current_item or {}).get("stage", ""),
             "currentTitle": (current_item or {}).get("title") or (current_item or {}).get("query", ""),
-            "destination": worker_batch.get("destination", "library") if worker_batch else _download_state.get("__batchDestination__", "library"),
+            "destination": worker_batch.get("destination", "library") if worker_batch else "library",
         }
     })
+
+
+@app.route('/api/wishlist/events/ack', methods=['POST'])
+def acknowledge_wishlist_events():
+    data = request.json or {}
+    item_ids = data.get("itemIds", [])
+    if not isinstance(item_ids, list):
+        return jsonify({"error": "itemIds debe ser una lista"}), 400
+    acknowledged = acknowledge_completion_events(item_ids)
+    return jsonify({"success": True, "acknowledged": acknowledged})
 
 
 

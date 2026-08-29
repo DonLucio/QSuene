@@ -38,15 +38,34 @@ if "--qsuene-spotdl" in sys.argv:
     _spotdl_entry_point()
     raise SystemExit(0)
 
+if "--qsuene-download-worker" in sys.argv:
+    configure_bundled_tools()
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from download_worker import recover_interrupted, run_forever
+    recover_interrupted()
+    run_forever()
+    raise SystemExit(0)
+
 # Add app directory to path to ensure import server works when run from root
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from server import app
-from download_worker import recover_interrupted, run_forever
 
 
-def start_download_worker():
-    recover_interrupted()
-    run_forever()
+def start_download_worker_process():
+    """Start the isolated durable worker without importing the desktop UI there."""
+    if getattr(sys, "frozen", False):
+        command = [sys.executable, "--qsuene-download-worker"]
+    else:
+        command = [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "download_worker.py")]
+    data_dir = os.environ.get(
+        "QUE_SUENE_DATA_DIR",
+        os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "QSuene"),
+    )
+    os.makedirs(data_dir, exist_ok=True)
+    log_path = os.path.join(data_dir, "download-worker.log")
+    log_file = open(log_path, "a", encoding="utf-8")
+    process = subprocess.Popen(command, stdout=log_file, stderr=subprocess.STDOUT)
+    return process, log_file
 
 
 def start_flask():
@@ -116,8 +135,7 @@ def setup_native_window_style():
 
 if __name__ == '__main__':
     multiprocessing.freeze_support()
-    worker_process = multiprocessing.Process(target=start_download_worker, daemon=True)
-    worker_process.start()
+    worker_process, worker_log_file = start_download_worker_process()
     # Start Flask in a background daemon thread
     t = threading.Thread(target=start_flask)
     t.daemon = True
@@ -150,4 +168,8 @@ if __name__ == '__main__':
         webview.start(icon=icon_path if os.path.exists(icon_path) else None)
     finally:
         worker_process.terminate()
-        worker_process.join(timeout=3)
+        try:
+            worker_process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            worker_process.kill()
+        worker_log_file.close()

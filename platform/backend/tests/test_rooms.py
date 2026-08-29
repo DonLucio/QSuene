@@ -327,6 +327,51 @@ async def test_cyclic_limit_reopens_when_a_song_leaves_the_queue():
 
 
 @pytest.mark.asyncio
+async def test_guests_can_request_a_song_only_twice_per_party_but_dj_is_exempt():
+    service = RoomService()
+    room, dj = await service.create_room("Sala", "DJ", 5, cyclic_requests=True)
+    room, guest_a = await service.join_room(room.code, "Ana")
+    room, guest_b = await service.join_room(room.code, "Beto")
+    await service.replace_catalog(room.id, dj.id, [
+        {"song_id": "hit", "title": "El hit", "artist": "Orquesta", "rating": 5},
+    ])
+
+    await service.add_request(room.id, guest_a.id, {"song_id": "hit"})
+    await service.consume_next(room.id, dj.id)
+    room = await service.add_request(room.id, guest_b.id, {"song_id": "hit"})
+    await service.consume_next(room.id, dj.id)
+
+    assert room.guest_song_request_counts == {"hit": 2}
+    with pytest.raises(RoomConflictError, match="máximo de 2"):
+        await service.add_request(room.id, guest_a.id, {"song_id": "hit"})
+
+    room = await service.add_request(room.id, dj.id, {"song_id": "hit"})
+    assert room.queue[-1].source.value == "dj"
+    assert room.guest_song_request_counts == {"hit": 2}
+
+
+@pytest.mark.asyncio
+async def test_guest_catalog_marks_songs_that_reached_the_party_request_limit():
+    service = RoomService()
+    room, dj = await service.create_room("Sala", "DJ", 5, cyclic_requests=True)
+    room, guest = await service.join_room(room.code, "Invitado")
+    await service.replace_catalog(room.id, dj.id, [
+        {"song_id": "hit", "title": "El hit", "artist": "Orquesta", "rating": 5},
+    ])
+    for _ in range(2):
+        await service.add_request(room.id, guest.id, {"song_id": "hit"})
+        await service.consume_next(room.id, dj.id)
+
+    songs, total = await service.search_catalog(room.id, guest.id, "", 0, 100)
+
+    assert total == 1
+    assert songs[0]["guest_request_count"] == 2
+    assert songs[0]["guest_request_limit"] == 2
+    assert songs[0]["guest_request_limit_reached"] is True
+    assert (await service.get_room(room.id)).snapshot()["guest_song_request_counts"] == {"hit": 2}
+
+
+@pytest.mark.asyncio
 async def test_same_device_keeps_identity_and_quota_after_rejoining_with_another_name():
     service = RoomService()
     room, dj = await service.create_room("Sala", "DJ", 1, cyclic_requests=False)

@@ -4,6 +4,7 @@ import ConfirmModal from '../modals/ConfirmModal';
 // 6-state machine with symmetrical and intuitive icons
 const STATUS_CONFIG = {
   pending:          { label: 'En cola',       icon: 'fa-regular fa-clock' },
+  queued:           { label: 'Preparando...', icon: 'fa-solid fa-list-check' },
   searching:        { label: 'Buscando...',   icon: 'fa-solid fa-magnifying-glass fa-pulse' },
   downloading:      { label: 'Descargando',    icon: 'fa-solid fa-circle-notch fa-spin' },
   moving_to_library:{ label: 'Guardando...',  icon: 'fa-solid fa-folder-open' },
@@ -11,7 +12,7 @@ const STATUS_CONFIG = {
   error:            { label: 'Error',          icon: 'fa-solid fa-circle-exclamation' },
 };
 
-const ACTIVE_STATUSES = new Set(['searching', 'downloading', 'moving_to_library']);
+const ACTIVE_STATUSES = new Set(['queued', 'searching', 'downloading', 'moving_to_library']);
 
 function formatDate(isoStr) {
   if (!isoStr) return '';

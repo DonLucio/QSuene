@@ -9,6 +9,7 @@ export default function useWishlistDownloads({ setSongList, showToast, onAutoSta
   const completedThisRunRef = useRef(0);
   const completedPartyRequestsRef = useRef([]);
   const downloadActiveRef = useRef(false);
+  const handledCompletionIdsRef = useRef(new Set());
 
   const refreshWishlist = useCallback(() => (
     fetch('/api/wishlist')
@@ -91,7 +92,6 @@ export default function useWishlistDownloads({ setSongList, showToast, onAutoSta
   }, [refreshLibrary, refreshWishlist, showToast]);
 
   useEffect(() => {
-    if (!isDownloadActive) return undefined;
     let cancelled = false;
     let pollTimer = null;
     let activeRequest = null;
@@ -109,18 +109,37 @@ export default function useWishlistDownloads({ setSongList, showToast, onAutoSta
           if (data.wishlist) setWishlist(data.wishlist.filter(item => item.status !== 'completed'));
           if (!data.summary) return;
 
-          const { isActive, needsReindex, completedCount, completedPartyRequests = [], completedSongs = [], currentProgress = 0, currentStage = '', destination } = data.summary;
+          const { isActive, completedEvents = [], currentProgress = 0, currentStage = '', destination } = data.summary;
+          downloadActiveRef.current = Boolean(isActive);
+          setIsDownloadActive(Boolean(isActive));
           if (isActive) setDownloadProgress(currentProgress > 0 ? `${currentProgress}%` : (currentStage || '…'));
-            if (needsReindex && completedCount > 0) {
-              completedThisRunRef.current += completedCount;
-              completedPartyRequestsRef.current.push(...completedPartyRequests);
+
+          const freshEvents = completedEvents.filter(event => (
+            event?.item_id && !handledCompletionIdsRef.current.has(event.item_id)
+          ));
+          if (freshEvents.length) {
+              freshEvents.forEach(event => handledCompletionIdsRef.current.add(event.item_id));
+              const completedSongs = freshEvents.map(event => event.song).filter(song => song?.path);
+              const partyEvents = freshEvents.filter(event => event.request?.partyRequestId);
+              completedThisRunRef.current += freshEvents.length;
+              completedPartyRequestsRef.current.push(...partyEvents.map(event => event.request));
               mergeCompletedSongs(completedSongs);
               refreshWishlist().catch(console.error);
-              if (completedPartyRequests.length) onCompleted?.(completedPartyRequests);
+              if (partyEvents.length) onCompleted?.(partyEvents);
               showToast(
-                completedCount === 1 ? 'Canción disponible' : `${completedCount} canciones disponibles`,
+                freshEvents.length === 1 ? 'Canción disponible' : `${freshEvents.length} canciones disponibles`,
                 'success',
               );
+          }
+          const locallyAcknowledgedIds = completedEvents
+            .filter(event => !event.request?.partyRequestId)
+            .map(event => event.item_id);
+          if (locallyAcknowledgedIds.length) {
+            fetch('/api/wishlist/events/ack', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ itemIds: locallyAcknowledgedIds }),
+            }).catch(console.error);
           }
           if (!isActive) {
             downloadActiveRef.current = false;
@@ -128,6 +147,7 @@ export default function useWishlistDownloads({ setSongList, showToast, onAutoSta
             setDownloadProgress('');
             const completedTotal = completedThisRunRef.current;
             if (completedTotal > 0) {
+              completedThisRunRef.current = 0;
               completeDownload(completedTotal, destination);
             }
           }
@@ -136,8 +156,8 @@ export default function useWishlistDownloads({ setSongList, showToast, onAutoSta
       } finally {
         window.clearTimeout(requestTimeout);
         activeRequest = null;
-        if (!cancelled && downloadActiveRef.current) {
-          pollTimer = window.setTimeout(poll, 750);
+        if (!cancelled) {
+          pollTimer = window.setTimeout(poll, downloadActiveRef.current ? 750 : 2500);
         }
       }
     };
@@ -148,7 +168,7 @@ export default function useWishlistDownloads({ setSongList, showToast, onAutoSta
       window.clearTimeout(pollTimer);
       activeRequest?.abort();
     };
-  }, [completeDownload, isDownloadActive, mergeCompletedSongs, onCompleted, refreshWishlist, showToast]);
+  }, [completeDownload, mergeCompletedSongs, onCompleted, refreshWishlist, showToast]);
 
   const addWishlistItem = useCallback(async (item, options = {}) => {
     try {

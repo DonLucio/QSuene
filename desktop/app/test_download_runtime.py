@@ -2,14 +2,14 @@ import sys
 import time
 from pathlib import Path
 
-import server
+import download_service
 
 
 def test_spotdl_progress_is_forwarded_before_process_finishes(monkeypatch):
     updates = []
     monkeypatch.setattr(
-        server,
-        "_set_item_progress",
+        download_service,
+        "_set_progress",
         lambda item_id, progress, stage: updates.append((progress, stage, time.monotonic())),
     )
     started = time.monotonic()
@@ -17,19 +17,19 @@ def test_spotdl_progress_is_forwarded_before_process_finishes(monkeypatch):
         sys.executable,
         "-u",
         "-c",
-        "import time; print('Downloading', flush=True); time.sleep(.35); print('Converting', flush=True)",
+        "import time; print('Downloading', flush=True); time.sleep(.8); print('Converting', flush=True)",
     ]
 
-    return_code, _ = server._run_spotdl_with_progress(command, "test-item", timeout=3)
+    return_code, _ = download_service.run_spotdl_with_progress(command, "test-item", timeout=3)
 
     assert return_code == 0
     assert any(progress == 40 for progress, _, _ in updates)
     assert any(progress == 72 for progress, _, _ in updates)
-    assert updates[0][2] - started < .3
+    assert updates[0][2] - started < .65
 
 
 def test_spotdl_completion_does_not_wait_for_inherited_output_pipe(monkeypatch):
-    monkeypatch.setattr(server, "_set_item_progress", lambda *args, **kwargs: None)
+    monkeypatch.setattr(download_service, "_set_progress", lambda *args, **kwargs: None)
     child = "import time; time.sleep(3)"
     parent = (
         "import subprocess,sys; "
@@ -38,7 +38,7 @@ def test_spotdl_completion_does_not_wait_for_inherited_output_pipe(monkeypatch):
     )
     started = time.monotonic()
 
-    return_code, _ = server._run_spotdl_with_progress(
+    return_code, _ = download_service.run_spotdl_with_progress(
         [sys.executable, "-u", "-c", parent], "test-item", timeout=3
     )
 
@@ -49,7 +49,8 @@ def test_spotdl_completion_does_not_wait_for_inherited_output_pipe(monkeypatch):
 def test_party_download_moves_file_and_publishes_guest_completion(tmp_path, monkeypatch):
     downloads = tmp_path / "descargas"
     party = tmp_path / "ModoFiesta"
-    wishlist_file = tmp_path / "wishlist.json"
+    import download_jobs
+    monkeypatch.setattr(download_jobs, "DB_PATH", str(tmp_path / "jobs.sqlite3"))
     downloads.mkdir()
     completed_events = []
     item = {
@@ -61,31 +62,28 @@ def test_party_download_moves_file_and_publishes_guest_completion(tmp_path, monk
         "partyRequestId": "request-1",
         "status": "pending",
     }
-    monkeypatch.setattr(server, "DOWNLOADS_DIR", str(downloads))
-    monkeypatch.setattr(server, "PARTY_DOWNLOADS_DIR", str(party))
-    monkeypatch.setattr(server, "WISHLIST_FILE", str(wishlist_file))
-    monkeypatch.setattr(server, "SPOTDL_COMMAND", ["spotdl"])
-    monkeypatch.setattr(server, "update_download_item", lambda *args, **kwargs: None)
-    monkeypatch.setattr(
-        server,
-        "complete_download_item",
-        lambda item_id, request, song: completed_events.append((item_id, request, song)),
-    )
+    monkeypatch.setattr(download_service, "DOWNLOADS_DIR", str(downloads))
+    monkeypatch.setattr(download_service, "PARTY_DOWNLOADS_DIR", str(party))
+    monkeypatch.setattr(download_service, "SPOTDL_COMMAND", ["spotdl"])
+    original_complete = download_jobs.complete_item
+    monkeypatch.setattr(download_service, "update_item", download_jobs.update_item)
+    monkeypatch.setattr(download_service, "complete_item", lambda item_id, request, song: (completed_events.append((item_id, request, song)), original_complete(item_id, request, song)))
 
     def fake_spotdl(command, item_id, timeout):
         Path(downloads / "Artista - Tema.mp3").write_bytes(b"audio")
         return 0, "Downloading 65% Converting"
 
-    monkeypatch.setattr(server, "_run_spotdl_with_progress", fake_spotdl)
-    server._download_state.clear()
-    server.save_wishlist([item])
+    monkeypatch.setattr(download_service, "run_spotdl_with_progress", fake_spotdl)
+    item["addedAt"] = "2026-01-01T00:00:00+00:00"
+    assert download_jobs.add_wishlist_item(item, preferred_party=True)
+    download_jobs.enqueue([item], "party", True)
 
-    count, requests = server._run_spotdl_downloads([item], use_party_directory=True)
+    count, requests = download_service.run_downloads([item], use_party_directory=True)
 
     assert count == 1
     assert (party / "Artista - Tema.mp3").exists()
     assert not (downloads / "Artista - Tema.mp3").exists()
-    assert server.load_wishlist() == []
+    assert download_jobs.list_wishlist() == []
     assert requests == [{"partyRequestId": "request-1", "title": "Tema", "artist": "Artista"}]
     assert completed_events[0][0] == "wish-1"
     assert completed_events[0][1]["partyRequestId"] == "request-1"

@@ -22,6 +22,7 @@ def room_to_state(room: Room) -> dict:
         ],
         "catalog": room.catalog,
         "queue": [item.public_dict() for item in room.queue],
+        "guest_song_request_counts": room.guest_song_request_counts,
         "wishlist_requests": room.wishlist_requests,
         "wishlist_available": room.wishlist_available,
         "playback": room.playback,
@@ -56,6 +57,10 @@ def room_from_state(state: dict) -> Room:
         cyclic_requests=bool(state.get("cyclic_requests")), is_public=bool(state.get("is_public")),
         version=int(state.get("version", 1)), open=bool(state.get("open", True)),
         participants=participants, catalog=dict(state.get("catalog", {})), queue=queue,
+        guest_song_request_counts={
+            str(song_id): max(0, int(count))
+            for song_id, count in state.get("guest_song_request_counts", {}).items()
+        },
         wishlist_requests=list(state.get("wishlist_requests", [])),
         wishlist_available=list(state.get("wishlist_available", [])),
         playback=dict(state.get("playback", {})),

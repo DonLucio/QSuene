@@ -73,6 +73,7 @@ class Room:
     participants: dict[str, Participant] = field(default_factory=dict)
     catalog: dict[str, dict] = field(default_factory=dict)
     queue: list[QueueItem] = field(default_factory=list)
+    guest_song_request_counts: dict[str, int] = field(default_factory=dict)
     wishlist_requests: list[dict] = field(default_factory=list)
     wishlist_available: list[dict] = field(default_factory=list)
     playback: dict = field(default_factory=lambda: {
@@ -99,6 +100,7 @@ class Room:
             "participants": [participant.public_dict() for participant in self.participants.values()],
             "catalog_count": len(self.catalog),
             "queue": [item.public_dict() for item in self.queue],
+            "guest_song_request_counts": dict(self.guest_song_request_counts),
             "wishlist_requests": list(self.wishlist_requests),
             "wishlist_available": list(self.wishlist_available),
             "playback": self.playback,

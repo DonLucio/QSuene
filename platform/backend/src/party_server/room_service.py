@@ -45,6 +45,7 @@ class RoomService:
             states.update({room_id: room_to_state(room) for room_id, room in self._rooms.items()})
 
     PUBLIC_GUEST_CAP = 10
+    MAX_GUEST_REQUESTS_PER_SONG = 2
 
     @staticmethod
     def _new_code() -> str:
@@ -164,6 +165,11 @@ class RoomService:
                 raise RoomConflictError("La canción ya está programada en la cola")
 
             if participant.role is Role.GUEST:
+                song_request_count = int(room.guest_song_request_counts.get(song_id, 0))
+                if song_request_count >= self.MAX_GUEST_REQUESTS_PER_SONG:
+                    raise RoomConflictError(
+                        "Esta canción ya alcanzó el máximo de 2 solicitudes en la fiesta"
+                    )
                 pending = sum(1 for item in room.queue if item.requested_by == participant_id)
                 used = pending if room.cyclic_requests else participant.requests_made
                 if used >= room.limit_per_guest:
@@ -185,6 +191,9 @@ class RoomService:
                 room.queue.append(item)
                 if participant.role is Role.GUEST:
                     participant.requests_made += 1
+                    room.guest_song_request_counts[song_id] = (
+                        int(room.guest_song_request_counts.get(song_id, 0)) + 1
+                    )
                     room.queue = self._interleave_guest_requests(room.queue)
             self._refresh_up_next_marker(room)
             room.version += 1
@@ -398,6 +407,18 @@ class RoomService:
                     f"{song.get('title', '')} {song.get('artist', '')}"
                 ))
             songs = recommended + unrated
+            songs = [
+                {
+                    **song,
+                    "guest_request_count": int(room.guest_song_request_counts.get(song["song_id"], 0)),
+                    "guest_request_limit": self.MAX_GUEST_REQUESTS_PER_SONG,
+                    "guest_request_limit_reached": (
+                        int(room.guest_song_request_counts.get(song["song_id"], 0))
+                        >= self.MAX_GUEST_REQUESTS_PER_SONG
+                    ),
+                }
+                for song in songs
+            ]
             return songs[offset:offset + limit], len(songs)
 
     async def update_playback(self, room_id: str, participant_id: str, payload: dict) -> Room:
