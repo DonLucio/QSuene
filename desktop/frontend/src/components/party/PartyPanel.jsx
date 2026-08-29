@@ -53,7 +53,7 @@ export default function PartyPanel({ enabled, onEnabledChange, limit, onLimitCha
       </div>
 
       <div style={{ color: 'var(--text-secondary)', fontWeight: 600, marginTop: '0.2rem', display: 'flex', justifyContent: 'space-between' }}>
-        <span>Programadas · {room?.participants?.filter(item => item.connected).length || 0} conectados</span>
+        <span>En cola · {room?.participants?.filter(item => item.connected).length || 0} conectados</span>
         <span id="party-queue-count" style={{ color: 'var(--accent)' }}>{queue.length}</span>
       </div>
       <div id="party-queue-list" className="party-queue-list party-scrollbar">

@@ -142,7 +142,7 @@ function WishlistPopover({ isOpen, onClose, anchorRef, wishlist, setWishlist, is
                     )}
                     {item.source === 'party_guest' && (
                       <span className="wishlist-item-requester">
-                        <i className="fa-solid fa-champagne-glasses" /> Solicitada por {item.requestedBy || 'invitado'}
+                        <i className="fa-solid fa-champagne-glasses" /> {item.requestedBy || 'Invitado'}
                       </span>
                     )}
                     <span className="wishlist-item-date">{formatDate(item.addedAt)}</span>

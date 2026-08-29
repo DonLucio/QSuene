@@ -398,7 +398,7 @@ function App() {
                   </label>
                   <label>
                     <span>Artista</span>
-                    <input value={wishlistArtist} onChange={(event) => setWishlistArtist(event.target.value)} onFocus={revealFocusedField} maxLength="120" required autoFocus />
+                    <input value={wishlistArtist} onChange={(event) => setWishlistArtist(event.target.value)} onFocus={revealFocusedField} maxLength="120" required />
                   </label>
                   <div>
                     <button type="button" className="cancel-request" onClick={() => setShowWishlistRequest(false)}>Cancelar</button>

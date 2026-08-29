@@ -789,9 +789,6 @@ def _run_spotdl_with_progress(cmd, item_id, timeout=300):
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
         bufsize=0,
         cwd=BASE_DIR,
     )
@@ -799,10 +796,10 @@ def _run_spotdl_with_progress(cmd, item_id, timeout=300):
 
     def read_output():
         while True:
-            chunk = process.stdout.read(128)
-            if not chunk:
+            raw_chunk = os.read(process.stdout.fileno(), 256)
+            if not raw_chunk:
                 break
-            chunks.put(chunk)
+            chunks.put(raw_chunk.decode("utf-8", errors="replace"))
         chunks.put(None)
 
     threading.Thread(target=read_output, daemon=True).start()
@@ -810,7 +807,14 @@ def _run_spotdl_with_progress(cmd, item_id, timeout=300):
     output_tail = ""
     last_progress = 0
     reader_done = False
-    while process.poll() is None or not reader_done:
+    phase_markers = (
+        ("searching", 18, "Buscando fuente"),
+        ("downloading", 40, "Descargando audio"),
+        ("converting", 72, "Procesando audio"),
+        ("embedding", 90, "Guardando metadatos"),
+        ("saving", 94, "Finalizando archivo"),
+    )
+    while process.poll() is None:
         if time.monotonic() >= deadline and process.poll() is None:
             process.kill()
             raise subprocess.TimeoutExpired(cmd, timeout)
@@ -829,7 +833,30 @@ def _run_spotdl_with_progress(cmd, item_id, timeout=300):
                 last_progress = progress
                 stage = "Finalizando" if progress >= 90 else ("Procesando audio" if progress >= 70 else "Descargando")
                 _set_item_progress(item_id, progress, stage)
-    return process.wait(), output_tail
+        # En una tubería sin TTY SpotDL no siempre imprime porcentajes, pero sí
+        # sus fases. Ofrecemos un avance conservador y real, nunca un porcentaje
+        # sintético basado únicamente en tiempo transcurrido.
+        lowered_output = output_tail.lower()
+        for marker, phase_progress, phase_stage in phase_markers:
+            if marker in lowered_output and phase_progress > last_progress:
+                last_progress = phase_progress
+                _set_item_progress(item_id, phase_progress, phase_stage)
+
+    # SpotDL ya terminó: no debemos mantener bloqueado el ciclo esperando a
+    # que un descendiente que heredó stdout cierre también la tubería. Drenamos
+    # únicamente lo que ya esté disponible y continuamos con el movimiento del
+    # archivo, la reindexación y las notificaciones.
+    drain_deadline = time.monotonic() + 1.0
+    while not reader_done and time.monotonic() < drain_deadline:
+        try:
+            chunk = chunks.get(timeout=.05)
+        except queue.Empty:
+            continue
+        if chunk is None:
+            reader_done = True
+        else:
+            output_tail = (output_tail + chunk)[-4000:]
+    return process.returncode, output_tail
 
 
 
@@ -872,7 +899,8 @@ def _run_spotdl_downloads(pending_items, use_party_directory=False):
         try:
             cmd = [
                 *SPOTDL_COMMAND, "download", query,
-                "--output", OUTPUT_TEMPLATE
+                "--output", OUTPUT_TEMPLATE,
+                "--simple-tui",
             ]
             return_code, process_output = _run_spotdl_with_progress(cmd, item_id, timeout=300)
 
