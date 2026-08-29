@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { getOrCreateAnalyser } from '../player/audioGraph';
+import { getOrCreateSpectrumAnalyser } from '../player/audioGraph';
 
 const BARS = [
   { x: 4.54, length: 3, orange: false },
@@ -10,6 +10,10 @@ const BARS = [
   { x: 19.54, length: 9, orange: false },
 ];
 const BAND_RANGES = [[0, 4], [3, 8], [7, 14], [13, 24], [23, 42], [41, 70]];
+// Calibrated against Bacalao Men - Cometas. Each frequency band has a
+// different natural energy, so a shared threshold would keep lows saturated.
+const BAND_FLOORS = [0.76, 0.60, 0.51, 0.41, 0.27, 0.14];
+const BAND_CEILINGS = [0.93, 0.85, 0.75, 0.64, 0.55, 0.47];
 const CENTER_Y = 11.5;
 
 function mixColor(from, to, amount) {
@@ -21,9 +25,11 @@ function mixColor(from, to, amount) {
 }
 
 function energyColor(energy) {
-  return energy <= 0.5
-    ? mixColor('#fafafa', '#facc15', energy * 2)
-    : mixColor('#facc15', '#f06812', (energy - 0.5) * 2);
+  const value = Math.max(0, Math.min(1, energy));
+  if (value < 0.28) return mixColor('#fafafa', '#fff7cc', value / 0.28);
+  if (value < 0.55) return mixColor('#fff7cc', '#fde047', (value - 0.28) / 0.27);
+  if (value < 0.82) return mixColor('#fde047', '#f59e0b', (value - 0.55) / 0.27);
+  return mixColor('#f59e0b', '#f06812', (value - 0.82) / 0.18);
 }
 
 export default function SpectrumLogo({ isPlaying, size = 50 }) {
@@ -53,7 +59,7 @@ export default function SpectrumLogo({ isPlaying, size = 50 }) {
     if (!isPlaying || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return restore;
 
     const audioElement = document.getElementById('audio-player');
-    const analyser = getOrCreateAnalyser(audioElement);
+    const analyser = getOrCreateSpectrumAnalyser(audioElement);
     if (!analyser) return restore;
     const frequencyData = new Uint8Array(analyser.frequencyBinCount);
 
@@ -68,20 +74,24 @@ export default function SpectrumLogo({ isPlaying, size = 50 }) {
         const end = Math.min(requestedEnd, frequencyData.length);
         let total = 0;
         for (let bin = start; bin < end; bin += 1) total += frequencyData[bin];
-        const raw = end > start ? Math.sqrt((total / (end - start)) / 255) : 0;
+        const level = end > start ? (total / (end - start)) / 255 : 0;
+        const raw = Math.max(0, Math.min(1,
+          (level - BAND_FLOORS[index]) / (BAND_CEILINGS[index] - BAND_FLOORS[index]),
+        ));
         const previous = smoothedRef.current[index];
-        const energy = previous + (raw - previous) * (raw > previous ? 0.42 : 0.18);
+        const energy = previous + (raw - previous) * (raw > previous ? 0.38 : 0.22);
         smoothedRef.current[index] = energy;
 
         const bar = BARS[index];
-        const heightScale = 0.72 + energy * 0.58;
+        const heightScale = 0.78 + energy * 0.47;
         const half = (bar.length * heightScale) / 2;
         const widthScale = 0.95 + energy * 0.1;
+        const colorEnergy = energy ** 1.35;
         path.setAttribute('d', `M ${bar.x},${CENTER_Y - half} V ${CENTER_Y + half}`);
-        path.style.stroke = energyColor(energy);
+        path.style.stroke = energyColor(colorEnergy);
         path.style.strokeWidth = `${1.7 * widthScale}px`;
         path.style.opacity = String(0.88 + energy * 0.12);
-        path.style.filter = energy > 0.72 ? `drop-shadow(0 0 ${2 + energy * 3}px rgba(240,104,18,.72))` : '';
+        path.style.filter = colorEnergy > 0.84 ? `drop-shadow(0 0 ${2 + colorEnergy * 3}px rgba(240,104,18,.72))` : '';
       });
     };
 
